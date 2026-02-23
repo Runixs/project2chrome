@@ -1,0 +1,10 @@
+{
+  "id": "project2chrome",
+  "name": "Project2Chrome",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Mirror target folder tree and ### Link list items into Chrome bookmarks bar.",
+  "author": "runixs",
+  "authorUrl": "",
+  "isDesktopOnly": true
+}

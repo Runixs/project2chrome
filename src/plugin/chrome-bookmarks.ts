@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { access, readFile, rename, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -10,8 +10,11 @@ type BookmarkNode = {
   type: "url" | "folder";
   url?: string;
   children?: BookmarkNode[];
+  guid?: string;
   date_added?: string;
+  date_last_used?: string;
   date_modified?: string;
+  meta_info?: Record<string, string>;
 };
 
 type BookmarksData = {
@@ -62,6 +65,7 @@ export async function syncIntoChromeBookmarks(
 
   if (rootFolder) {
     rootFolder.name = options.rootFolderName;
+    ensureChromeCompatibleMetadata(rootFolder);
     rootFolder.date_modified = nowChromeMicros();
     managedFolderIds[rootKey] = rootFolder.id;
     desiredFolderKeys.add(rootKey);
@@ -134,6 +138,7 @@ function applyFolder(
   }
 
   folderNode.name = desired.name;
+  ensureChromeCompatibleMetadata(folderNode);
   folderNode.date_modified = nowChromeMicros();
   if (!folderNode.children) {
     folderNode.children = [];
@@ -151,6 +156,7 @@ function applyFolder(
     }
     urlNode.name = link.title;
     urlNode.url = link.url;
+    ensureChromeCompatibleMetadata(urlNode);
     managedBookmarkIds[link.key] = urlNode.id;
     desiredBookmarkKeys.add(link.key);
     desiredBookmarkUrls.add(link.url);
@@ -276,11 +282,48 @@ function findUrlForKey(parent: BookmarkNode, url: string, preferredId?: string):
 
 function createFolder(name: string, id: string): BookmarkNode {
   const now = nowChromeMicros();
-  return { id, type: "folder", name, children: [], date_added: now, date_modified: now };
+  return {
+    id,
+    type: "folder",
+    name,
+    children: [],
+    guid: randomUUID(),
+    date_added: now,
+    date_last_used: "0",
+    date_modified: now
+  };
 }
 
 function createUrl(name: string, url: string, id: string): BookmarkNode {
-  return { id, type: "url", name, url, date_added: nowChromeMicros() };
+  return {
+    id,
+    type: "url",
+    name,
+    url,
+    guid: randomUUID(),
+    date_added: nowChromeMicros(),
+    date_last_used: "0",
+    meta_info: {
+      power_bookmark_meta: ""
+    }
+  };
+}
+
+function ensureChromeCompatibleMetadata(node: BookmarkNode): void {
+  if (!node.guid || node.guid.trim().length === 0) {
+    node.guid = randomUUID();
+  }
+
+  if (!node.date_last_used) {
+    node.date_last_used = "0";
+  }
+
+  if (node.type === "url") {
+    node.meta_info = {
+      ...(node.meta_info ?? {}),
+      power_bookmark_meta: node.meta_info?.power_bookmark_meta ?? ""
+    };
+  }
 }
 
 function makeIdAllocator(data: BookmarksData): () => string {

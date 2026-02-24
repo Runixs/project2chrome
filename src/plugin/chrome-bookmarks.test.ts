@@ -32,6 +32,110 @@ describe("normalizeBookmarksPath", () => {
 });
 
 describe("syncIntoChromeBookmarks", () => {
+  it("creates Chrome-compatible fields for new folder and url nodes", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "project2chrome-"));
+    const bookmarksPath = path.join(tempDir, "Bookmarks");
+
+    try {
+      const initial = {
+        roots: {
+          bookmark_bar: {
+            id: "1",
+            type: "folder",
+            name: "Bookmarks bar",
+            children: []
+          }
+        }
+      };
+
+      await writeFile(bookmarksPath, `${JSON.stringify(initial, null, 2)}\n`, "utf8");
+
+      const settings: Project2ChromeSettings = {
+        ...DEFAULT_SETTINGS,
+        chromeBookmarksFileByOs: {
+          macos: bookmarksPath,
+          linux: bookmarksPath,
+          windows: bookmarksPath
+        },
+        state: {
+          managedFolderIds: {},
+          managedBookmarkIds: {}
+        }
+      };
+
+      await syncIntoChromeBookmarks(
+        [
+          {
+            key: "folder:Projects/APS",
+            path: "Projects/APS",
+            name: "APS",
+            children: [],
+            links: [
+              {
+                key: "Projects/APS.md|https://example.com/",
+                title: "Example",
+                url: "https://example.com/"
+              }
+            ]
+          }
+        ],
+        settings,
+        { rootFolderName: "Projects", ensureRoot: true }
+      );
+
+      const updatedRaw = await readFile(bookmarksPath, "utf8");
+      const updated = JSON.parse(updatedRaw) as {
+        roots: {
+          bookmark_bar: {
+            children?: Array<{
+              id: string;
+              type: string;
+              name: string;
+              guid?: string;
+              date_last_used?: string;
+              children?: Array<{
+                id: string;
+                type: string;
+                name: string;
+                guid?: string;
+                date_last_used?: string;
+                meta_info?: Record<string, string>;
+                children?: Array<{
+                  id: string;
+                  type: string;
+                  name: string;
+                  guid?: string;
+                  date_last_used?: string;
+                  meta_info?: Record<string, string>;
+                  url?: string;
+                }>;
+              }>;
+            }>;
+          };
+        };
+      };
+
+      const root = (updated.roots.bookmark_bar.children ?? []).find((child) => child.name === "Projects");
+      assert.ok(root);
+      assert.ok(root.guid && root.guid.length > 0);
+      assert.equal(root.date_last_used, "0");
+
+      const aps = (root.children ?? []).find((child) => child.name === "APS");
+      assert.ok(aps);
+      assert.ok(aps.guid && aps.guid.length > 0);
+      assert.equal(aps.date_last_used, "0");
+
+      const link = (aps.children ?? []).find((child) => child.type === "url");
+      assert.ok(link);
+      assert.ok(link.guid && link.guid.length > 0);
+      assert.equal(link.date_last_used, "0");
+      assert.equal(link.meta_info?.power_bookmark_meta, "");
+      assert.equal(link.url, "https://example.com/");
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("removes obsolete bookmark even when saved id is stale", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "project2chrome-"));
     const bookmarksPath = path.join(tempDir, "Bookmarks");

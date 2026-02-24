@@ -44,6 +44,21 @@ describe("parseLinksFromHeading", () => {
     const parsed = parseLinksFromHeading(md, "Link", "multi.md");
     assert.equal(parsed.length, 3);
     assert.deepEqual(parsed.map((item) => item.title), ["One", "Two", "Three"]);
+    assert.deepEqual(parsed.map((item) => item.key), ["multi.md|0", "multi.md|1", "multi.md|2"]);
+  });
+
+  it("keeps duplicate urls as separate bookmarks in line order", () => {
+    const md = [
+      "### Link",
+      "- [Solution1](https://example.com/shared)",
+      "- [Solution2](https://example.com/shared)",
+      "- [Solution3](https://example.com/shared)"
+    ].join("\n");
+
+    const parsed = parseLinksFromHeading(md, "Link", "dup.md");
+    assert.equal(parsed.length, 3);
+    assert.deepEqual(parsed.map((item) => item.title), ["Solution1", "Solution2", "Solution3"]);
+    assert.deepEqual(parsed.map((item) => item.key), ["dup.md|0", "dup.md|1", "dup.md|2"]);
   });
 
   it("accepts configured heading with markdown hashes", () => {

@@ -9,7 +9,7 @@ export function parseLinksFromHeading(content: string, heading: string, sourcePa
     return [];
   }
   const links: LinkItem[] = [];
-  const seen = new Set<string>();
+  let linkIndex = 0;
 
   let inSection = false;
 
@@ -49,11 +49,11 @@ export function parseLinksFromHeading(content: string, heading: string, sourcePa
       }
       const title = titleRaw.trim();
       const url = sanitizeUrl(urlRaw);
-      if (!url || seen.has(url)) {
+      if (!url) {
         continue;
       }
-      seen.add(url);
-      links.push({ title: title.length > 0 ? title : url, url, key: `${sourcePath}|${url}` });
+      links.push({ title: title.length > 0 ? title : url, url, key: `${sourcePath}|${String(linkIndex)}` });
+      linkIndex += 1;
     }
 
   }

@@ -1,6 +1,6 @@
 # Project2Chrome
 
-Project2Chrome is an Obsidian desktop plugin that mirrors a vault folder tree into Chrome's bookmark bar and imports links from markdown sections.
+Project2Chrome is an Obsidian desktop plugin + Chrome extension bridge that mirrors a vault folder tree into Chrome bookmarks.
 
 ## What It Does
 
@@ -8,12 +8,12 @@ Project2Chrome is an Obsidian desktop plugin that mirrors a vault folder tree in
 - Extracts links from `### Link` sections in markdown files.
 - Syncs on vault changes (create/modify/delete/rename) with debounce.
 - Maintains managed bookmark/folder state to update existing nodes instead of duplicating.
-- Supports macOS, Linux, and Windows bookmark file paths.
+- Uses Chrome extension API (`chrome.bookmarks`) for cross-platform sync.
 
 ## Requirements
 
 - Obsidian desktop (plugin is desktop-only).
-- Chrome profile with a writable `Bookmarks` JSON file.
+- Chrome extension loaded from `dist/extension`.
 - Node.js 20+ and npm (for local build/test).
 
 ## Quick Start (Development)
@@ -27,6 +27,10 @@ Build artifacts:
 
 - `dist/plugin/main.js`
 - `dist/plugin/manifest.json`
+- `dist/extension/manifest.json`
+- `dist/extension/background.js`
+- `dist/extension/popup.html`
+- `dist/extension/popup.js`
 
 ## Install In Obsidian (Manual)
 
@@ -42,15 +46,21 @@ Build artifacts:
 - `Root folder mode`:
   - `Custom`: use `Custom root folder name`
   - `Use target folder name`: use the last segment of target path
-- `Chrome Bookmarks file (macOS/Linux/Windows)`: OS-specific bookmarks JSON path.
 - `Auto sync`: enable sync on vault events.
 - `Debounce (ms)`: delay before running sync after vault events.
+- `Extension bridge enabled`: serve payload to localhost bridge endpoint.
+- `Extension bridge port`: localhost port (default `27123`).
+- `Extension bridge token`: shared token used by extension request header.
 
-Default bookmark file paths:
+## Extension Setup (Automated Sync)
 
-- macOS: `~/Library/Application Support/Google/Chrome/Default/Bookmarks`
-- Linux: `~/.config/google-chrome/Default/Bookmarks`
-- Windows: `~/AppData/Local/Google/Chrome/User Data/Default/Bookmarks`
+1. Open `chrome://extensions`.
+2. Enable Developer mode.
+3. Click `Load unpacked` and select `dist/extension`.
+4. Open extension popup and set:
+   - Bridge URL: `http://127.0.0.1:27123/payload`
+   - Bridge token: same value as plugin setting
+5. Click `Sync From Obsidian` once, then enable `Auto sync every 1 minute`.
 
 ## Link Extraction Format
 
@@ -64,7 +74,7 @@ Inside a markdown note, links are read from bullet items under `### Link`:
 
 ## Commands
 
-- `Sync to Chrome bookmarks now`: trigger full sync immediately.
+- `Refresh payload for Chrome extension`: rebuild payload served by local bridge.
 
 ## Test And Typecheck
 
@@ -73,8 +83,8 @@ npm run test
 npm run typecheck
 ```
 
-## Safety Notes
+## Bridge Endpoint
 
-- Close Chrome before heavy sync operations to reduce write conflicts.
-- This plugin edits Chrome's `Bookmarks` JSON file directly.
-- Keep a backup copy of your `Bookmarks` file before first use.
+- Health: `GET http://127.0.0.1:<port>/health`
+- Payload: `GET http://127.0.0.1:<port>/payload`
+- Required header: `X-Project2Chrome-Token: <token>`

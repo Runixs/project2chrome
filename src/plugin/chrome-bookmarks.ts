@@ -104,19 +104,9 @@ export async function syncIntoChromeBookmarks(
   data.checksum = computeMd5Checksum(data);
   data.checksum_sha256 = computeSha256Checksum(data);
 
-  const tmpPath = `${bookmarkPath}.tmp`;
-  try {
-    await writeFile(tmpPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
-    await rename(tmpPath, bookmarkPath);
-  } catch (error) {
-    const details = formatFsError(error);
-    if (details.code === "EACCES" || details.code === "EPERM" || details.code === "EBUSY") {
-      throw new Error(
-        `Cannot write Chrome Bookmarks file at ${bookmarkPath}. Close Chrome and try again. (${details.message})`
-      );
-    }
-    throw new Error(`Failed to write Chrome Bookmarks file at ${bookmarkPath}. (${details.message})`);
-  }
+  const serialized = `${JSON.stringify(data, null, 2)}\n`;
+  await writeBookmarksFileAtomic(bookmarkPath, serialized);
+  await writeBookmarksFileAtomic(`${bookmarkPath}.bak`, serialized);
 
   return { managedFolderIds, managedBookmarkIds };
 }
@@ -427,6 +417,20 @@ function formatFsError(error: unknown): { code: string | undefined; message: str
     return { code: withCode.code, message: error.message };
   }
   return { code: undefined, message: String(error) };
+}
+
+async function writeBookmarksFileAtomic(targetPath: string, serialized: string): Promise<void> {
+  const tmpPath = `${targetPath}.tmp`;
+  try {
+    await writeFile(tmpPath, serialized, "utf8");
+    await rename(tmpPath, targetPath);
+  } catch (error) {
+    const details = formatFsError(error);
+    if (details.code === "EACCES" || details.code === "EPERM" || details.code === "EBUSY") {
+      throw new Error(`Cannot write Chrome Bookmarks file at ${targetPath}. Close Chrome and try again. (${details.message})`);
+    }
+    throw new Error(`Failed to write Chrome Bookmarks file at ${targetPath}. (${details.message})`);
+  }
 }
 
 function resolveBookmarksPathForCurrentOs(settings: Project2ChromeSettings): string {

@@ -35,6 +35,7 @@ describe("syncIntoChromeBookmarks", () => {
   it("removes obsolete bookmark even when saved id is stale", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "project2chrome-"));
     const bookmarksPath = path.join(tempDir, "Bookmarks");
+    const backupPath = `${bookmarksPath}.bak`;
 
     try {
       const initial = {
@@ -85,6 +86,7 @@ describe("syncIntoChromeBookmarks", () => {
       });
 
       const updatedRaw = await readFile(bookmarksPath, "utf8");
+      const backupRaw = await readFile(backupPath, "utf8");
       const updated = JSON.parse(updatedRaw) as {
         roots: {
           bookmark_bar: {
@@ -97,6 +99,7 @@ describe("syncIntoChromeBookmarks", () => {
       assert.ok(rootFolder);
       assert.equal((rootFolder.children ?? []).filter((child) => child.type === "url").length, 0);
       assert.deepEqual(nextState.managedBookmarkIds, {});
+      assert.equal(backupRaw, updatedRaw);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

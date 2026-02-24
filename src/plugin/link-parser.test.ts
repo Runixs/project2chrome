@@ -29,4 +29,19 @@ describe("parseLinksFromHeading", () => {
     const parsed = parseLinksFromHeading(md, "Link", "x.md");
     assert.equal(parsed.length, 0);
   });
+
+  it("parses markdown link titles containing inner brackets", () => {
+    const md = [
+      "### Link",
+      "- [[VN] Host Bootloader Solution](https://confluence.samsungds.net/spaces/APS/pages/3300017080/40.+VN+Host+Bootloader+Solution)"
+    ].join("\n");
+
+    const parsed = parseLinksFromHeading(md, "Link", "vn.md");
+    assert.equal(parsed.length, 1);
+    assert.equal(parsed[0]?.title, "[VN] Host Bootloader Solution");
+    assert.equal(
+      parsed[0]?.url,
+      "https://confluence.samsungds.net/spaces/APS/pages/3300017080/40.+VN+Host+Bootloader+Solution"
+    );
+  });
 });

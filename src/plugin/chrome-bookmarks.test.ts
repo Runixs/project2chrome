@@ -32,6 +32,64 @@ describe("normalizeBookmarksPath", () => {
 });
 
 describe("syncIntoChromeBookmarks", () => {
+  it("keeps sibling folders with same name as separate nodes", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "project2chrome-"));
+    const bookmarksPath = path.join(tempDir, "Bookmarks");
+
+    try {
+      const initial = {
+        roots: {
+          bookmark_bar: {
+            id: "1",
+            type: "folder",
+            name: "Bookmarks bar",
+            children: []
+          }
+        }
+      };
+
+      await writeFile(bookmarksPath, `${JSON.stringify(initial, null, 2)}\n`, "utf8");
+
+      const settings: Project2ChromeSettings = {
+        ...DEFAULT_SETTINGS,
+        chromeBookmarksFileByOs: {
+          macos: bookmarksPath,
+          linux: bookmarksPath,
+          windows: bookmarksPath
+        },
+        state: {
+          managedFolderIds: {},
+          managedBookmarkIds: {}
+        }
+      };
+
+      await syncIntoChromeBookmarks(
+        [
+          { key: "folder:A/IssueTracker", path: "A/IssueTracker", name: "IssueTracker", children: [], links: [] },
+          { key: "folder:B/IssueTracker", path: "B/IssueTracker", name: "IssueTracker", children: [], links: [] }
+        ],
+        settings,
+        { rootFolderName: "Projects", ensureRoot: true }
+      );
+
+      const updatedRaw = await readFile(bookmarksPath, "utf8");
+      const updated = JSON.parse(updatedRaw) as {
+        roots: {
+          bookmark_bar: {
+            children?: Array<{ name: string; children?: Array<{ name: string; type: string }> }>;
+          };
+        };
+      };
+
+      const root = (updated.roots.bookmark_bar.children ?? []).find((child) => child.name === "Projects");
+      assert.ok(root);
+      const sameNameChildren = (root.children ?? []).filter((child) => child.type === "folder" && child.name === "IssueTracker");
+      assert.equal(sameNameChildren.length, 2);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("creates Chrome-compatible fields for new folder and url nodes", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "project2chrome-"));
     const bookmarksPath = path.join(tempDir, "Bookmarks");

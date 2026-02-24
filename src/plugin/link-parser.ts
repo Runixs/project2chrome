@@ -1,6 +1,6 @@
 import type { LinkItem } from "./types";
 
-const MARKDOWN_LINK_RE = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g;
+const MARKDOWN_LINK_RE = /\[((?:[^[\]]+|\[[^[\]]*\])+)\]\((https?:\/\/[^)\s]+)\)/g;
 const URL_RE = /(https?:\/\/\S+)/g;
 
 export function parseLinksFromHeading(content: string, heading: string, sourcePath: string): LinkItem[] {

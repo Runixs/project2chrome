@@ -50,13 +50,14 @@ export async function syncIntoChromeBookmarks(
   const desiredFolderKeys = new Set<string>();
   const desiredBookmarkKeys = new Set<string>();
   const desiredBookmarkUrls = new Set<string>();
+  const claimedFolderIds = new Set<string>();
   const managedFolderIds: Record<string, string> = {};
   const managedBookmarkIds: Record<string, string> = {};
 
   const rootKey = "__root__";
   const oldRootId = settings.state.managedFolderIds[rootKey];
   const rootFolder = options.ensureRoot
-    ? findFolderForKey(bookmarkBar, options.rootFolderName, oldRootId) ?? createFolder(options.rootFolderName, nextId())
+    ? findFolderForKey(bookmarkBar, options.rootFolderName, oldRootId, claimedFolderIds) ?? createFolder(options.rootFolderName, nextId())
     : null;
 
   if (rootFolder && !bookmarkBar.children.some((child) => child.id === rootFolder.id)) {
@@ -68,6 +69,7 @@ export async function syncIntoChromeBookmarks(
     ensureChromeCompatibleMetadata(rootFolder);
     rootFolder.date_modified = nowChromeMicros();
     managedFolderIds[rootKey] = rootFolder.id;
+    claimedFolderIds.add(rootFolder.id);
     desiredFolderKeys.add(rootKey);
   }
 
@@ -85,6 +87,7 @@ export async function syncIntoChromeBookmarks(
       desiredFolderKeys,
       desiredBookmarkKeys,
       desiredBookmarkUrls,
+      claimedFolderIds,
       nextId
     );
   }
@@ -125,13 +128,14 @@ function applyFolder(
   desiredFolderKeys: Set<string>,
   desiredBookmarkKeys: Set<string>,
   desiredBookmarkUrls: Set<string>,
+  claimedFolderIds: Set<string>,
   nextId: () => string
 ): void {
   if (!parent.children) {
     parent.children = [];
   }
 
-  const existing = findFolderForKey(parent, desired.name, oldFolderIds[desired.key]);
+  const existing = findFolderForKey(parent, desired.name, oldFolderIds[desired.key], claimedFolderIds);
   const folderNode = existing ?? createFolder(desired.name, nextId());
   if (!existing) {
     parent.children.push(folderNode);
@@ -145,6 +149,7 @@ function applyFolder(
   }
 
   managedFolderIds[desired.key] = folderNode.id;
+  claimedFolderIds.add(folderNode.id);
   desiredFolderKeys.add(desired.key);
 
   for (const link of desired.links) {
@@ -173,6 +178,7 @@ function applyFolder(
       desiredFolderKeys,
       desiredBookmarkKeys,
       desiredBookmarkUrls,
+      claimedFolderIds,
       nextId
     );
   }
@@ -258,15 +264,20 @@ function removeFirstUrl(node: BookmarkNode, url: string, protectedIds: Set<strin
   return node.children.some((child) => removeFirstUrl(child, url, protectedIds));
 }
 
-function findFolderForKey(parent: BookmarkNode, name: string, preferredId?: string): BookmarkNode | undefined {
+function findFolderForKey(
+  parent: BookmarkNode,
+  name: string,
+  preferredId: string | undefined,
+  claimedFolderIds: Set<string>
+): BookmarkNode | undefined {
   const children = parent.children ?? [];
   if (preferredId) {
     const byId = children.find((n) => n.id === preferredId && n.type === "folder");
-    if (byId) {
+    if (byId && !claimedFolderIds.has(byId.id)) {
       return byId;
     }
   }
-  return children.find((n) => n.type === "folder" && n.name === name);
+  return children.find((n) => n.type === "folder" && n.name === name && !claimedFolderIds.has(n.id));
 }
 
 function findUrlForKey(parent: BookmarkNode, url: string, preferredId?: string): BookmarkNode | undefined {

@@ -1,6 +1,6 @@
 # Project2Chrome
 
-Project2Chrome is an Obsidian desktop plugin + Chrome extension bridge that mirrors a vault folder tree into Chrome bookmarks.
+Project2Chrome is an Obsidian desktop plugin that builds and serves a bookmark payload for a separate Chrome extension gateway.
 
 ## What It Does
 
@@ -8,12 +8,12 @@ Project2Chrome is an Obsidian desktop plugin + Chrome extension bridge that mirr
 - Extracts links from `### Link` sections in markdown files.
 - Syncs on vault changes (create/modify/delete/rename) with debounce.
 - Maintains managed bookmark/folder state to update existing nodes instead of duplicating.
-- Uses Chrome extension API (`chrome.bookmarks`) for cross-platform sync.
+- Serves bridge payload over localhost for extension-side sync.
 
 ## Requirements
 
 - Obsidian desktop (plugin is desktop-only).
-- Chrome extension loaded from `dist/extension`.
+- Chrome extension project: `/Users/runixs/working_local/chrome/local-event-gateway`.
 - Node.js 20+ and npm (for local build/test).
 
 ## Quick Start (Development)
@@ -27,10 +27,6 @@ Build artifacts:
 
 - `dist/plugin/main.js`
 - `dist/plugin/manifest.json`
-- `dist/extension/manifest.json`
-- `dist/extension/background.js`
-- `dist/extension/popup.html`
-- `dist/extension/popup.js`
 
 ## Install In Obsidian (Manual)
 
@@ -56,7 +52,7 @@ Build artifacts:
 
 1. Open `chrome://extensions`.
 2. Enable Developer mode.
-3. Click `Load unpacked` and select `dist/extension`.
+3. Click `Load unpacked` and select `/Users/runixs/working_local/chrome/local-event-gateway`.
 4. Open extension popup and set:
    - Bridge URL: `http://127.0.0.1:27123/payload`
    - Bridge token: same value as plugin setting

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Project2Chrome</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 12px;
+        width: 320px;
+        font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      textarea {
+        width: 100%;
+        min-height: 150px;
+        box-sizing: border-box;
+        font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      button {
+        margin-top: 8px;
+        width: 100%;
+      }
+      .status {
+        margin-top: 8px;
+        word-break: break-word;
+      }
+    </style>
+  </head>
+  <body>
+    <strong>Project2Chrome</strong>
+    <p>Paste exported payload JSON and run sync.</p>
+    <textarea id="payload" placeholder="{ &quot;rootFolderName&quot;: &quot;Projects&quot;, ... }"></textarea>
+    <button id="sync" type="button">Sync Bookmarks</button>
+    <div id="status" class="status"></div>
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -14,6 +14,10 @@ export async function buildDesiredTree(vault: Vault, targetFolderPath: string, h
   for (const child of target.children) {
     if (child instanceof TFolder) {
       roots.push(await buildFolder(vault, child, heading));
+      continue;
+    }
+    if (isMarkdownFile(child)) {
+      roots.push(await buildNoteFolder(vault, child, heading));
     }
   }
 
@@ -22,7 +26,6 @@ export async function buildDesiredTree(vault: Vault, targetFolderPath: string, h
 
 async function buildFolder(vault: Vault, folder: TFolder, heading: string): Promise<DesiredFolder> {
   const children: DesiredFolder[] = [];
-  const linksByUrl = new Map<string, { title: string; key: string; url: string }>();
 
   for (const child of folder.children) {
     if (child instanceof TFolder) {
@@ -31,13 +34,7 @@ async function buildFolder(vault: Vault, folder: TFolder, heading: string): Prom
     }
 
     if (isMarkdownFile(child)) {
-      const content = await vault.read(child);
-      const links = parseLinksFromHeading(content, heading, child.path);
-      for (const link of links) {
-        if (!linksByUrl.has(link.url)) {
-          linksByUrl.set(link.url, link);
-        }
-      }
+      children.push(await buildNoteFolder(vault, child, heading));
     }
   }
 
@@ -46,7 +43,20 @@ async function buildFolder(vault: Vault, folder: TFolder, heading: string): Prom
     path: folder.path,
     name: folder.name,
     children,
-    links: [...linksByUrl.values()].map((l) => ({ title: l.title, url: l.url, key: l.key }))
+    links: []
+  };
+}
+
+async function buildNoteFolder(vault: Vault, noteFile: TFile, heading: string): Promise<DesiredFolder> {
+  const content = await vault.read(noteFile);
+  const links = parseLinksFromHeading(content, heading, noteFile.path);
+
+  return {
+    key: `note:${noteFile.path}`,
+    path: noteFile.path,
+    name: noteFile.basename,
+    children: [],
+    links
   };
 }
 

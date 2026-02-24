@@ -1,11 +1,13 @@
 import type { LinkItem } from "./types";
 
 const MARKDOWN_LINK_RE = /\[((?:[^[\]]+|\[[^[\]]*\])+)\]\((https?:\/\/[^)\s]+)\)/g;
-const URL_RE = /(https?:\/\/\S+)/g;
 
 export function parseLinksFromHeading(content: string, heading: string, sourcePath: string): LinkItem[] {
   const lines = content.split(/\r?\n/);
-  const normalizedHeading = heading.trim().toLowerCase();
+  const normalizedHeading = normalizeHeadingText(heading);
+  if (!normalizedHeading) {
+    return [];
+  }
   const links: LinkItem[] = [];
   const seen = new Set<string>();
 
@@ -17,7 +19,7 @@ export function parseLinksFromHeading(content: string, heading: string, sourcePa
     if (!inSection) {
       const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
       const headingText = headingMatch?.[2];
-      if (headingText && headingText.trim().toLowerCase() === normalizedHeading) {
+      if (headingText && normalizeHeadingText(headingText) === normalizedHeading) {
         inSection = true;
       }
       continue;
@@ -38,7 +40,8 @@ export function parseLinksFromHeading(content: string, heading: string, sourcePa
     }
     const body = bodyRaw.trim();
 
-    for (const match of body.matchAll(MARKDOWN_LINK_RE)) {
+    const markdownLinkRe = new RegExp(MARKDOWN_LINK_RE);
+    for (const match of body.matchAll(markdownLinkRe)) {
       const titleRaw = match[1];
       const urlRaw = match[2];
       if (!titleRaw || !urlRaw) {
@@ -53,21 +56,17 @@ export function parseLinksFromHeading(content: string, heading: string, sourcePa
       links.push({ title: title.length > 0 ? title : url, url, key: `${sourcePath}|${url}` });
     }
 
-    for (const match of body.matchAll(URL_RE)) {
-      const urlRaw = match[1];
-      if (!urlRaw) {
-        continue;
-      }
-      const url = sanitizeUrl(urlRaw);
-      if (!url || seen.has(url)) {
-        continue;
-      }
-      seen.add(url);
-      links.push({ title: url, url, key: `${sourcePath}|${url}` });
-    }
   }
 
   return links;
+}
+
+function normalizeHeadingText(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^#{1,6}\s*/, "")
+    .trim()
+    .toLowerCase();
 }
 
 function sanitizeUrl(raw: string): string | null {

@@ -220,7 +220,7 @@ class Project2ChromeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Link heading")
-      .setDesc("Heading name used to extract links, e.g. Link for ### Link")
+      .setDesc("Heading used to extract links, e.g. Link or ### Link")
       .addText((text) => {
         text
           .setPlaceholder("Link")

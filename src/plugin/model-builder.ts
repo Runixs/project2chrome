@@ -40,7 +40,7 @@ async function buildFolder(vault: Vault, folder: TFolder, heading: string, useFo
     }
 
     if (isMarkdownFile(child)) {
-      if (useFolderNotesPlugin && child.basename === folder.name) {
+      if (useFolderNotesPlugin && isFolderNoteFile(child, folder)) {
         const content = await vault.read(child);
         links = parseLinksFromHeading(content, heading, child.path);
         continue;
@@ -73,4 +73,12 @@ async function buildNoteFolder(vault: Vault, noteFile: TFile, heading: string): 
 
 function isMarkdownFile(file: TAbstractFile): file is TFile {
   return file instanceof TFile && file.extension.toLowerCase() === "md";
+}
+
+function isFolderNoteFile(file: TFile, folder: TFolder): boolean {
+  return normalizeName(file.basename) === normalizeName(folder.name);
+}
+
+function normalizeName(value: string): string {
+  return value.normalize("NFC").trim().toLowerCase();
 }

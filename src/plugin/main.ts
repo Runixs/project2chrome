@@ -244,6 +244,7 @@ class Project2ChromeSettingTab extends PluginSettingTab {
         toggle.setValue(this.plugin.settings.useFolderNotesPlugin).onChange(async (value) => {
           this.plugin.settings.useFolderNotesPlugin = value;
           await this.plugin.saveSettings();
+          await this.plugin.syncNow();
         });
       });
 

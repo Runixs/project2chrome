@@ -45,6 +45,7 @@ export async function syncIntoChromeBookmarks(
   const nextId = makeIdAllocator(data);
   const desiredFolderKeys = new Set<string>();
   const desiredBookmarkKeys = new Set<string>();
+  const desiredBookmarkUrls = new Set<string>();
   const managedFolderIds: Record<string, string> = {};
   const managedBookmarkIds: Record<string, string> = {};
 
@@ -69,11 +70,32 @@ export async function syncIntoChromeBookmarks(
     if (!rootFolder) {
       break;
     }
-    applyFolder(folder, rootFolder, settings.state.managedFolderIds, settings.state.managedBookmarkIds, managedFolderIds, managedBookmarkIds, desiredFolderKeys, desiredBookmarkKeys, nextId);
+    applyFolder(
+      folder,
+      rootFolder,
+      settings.state.managedFolderIds,
+      settings.state.managedBookmarkIds,
+      managedFolderIds,
+      managedBookmarkIds,
+      desiredFolderKeys,
+      desiredBookmarkKeys,
+      desiredBookmarkUrls,
+      nextId
+    );
   }
 
-  pruneObsoleteIds(bookmarkBar, settings.state.managedBookmarkIds, desiredBookmarkKeys);
-  pruneObsoleteIds(bookmarkBar, settings.state.managedFolderIds, desiredFolderKeys);
+  const activeManagedBookmarkIds = new Set(Object.values(managedBookmarkIds));
+  const activeManagedFolderIds = new Set(Object.values(managedFolderIds));
+
+  pruneObsoleteIds(bookmarkBar, settings.state.managedBookmarkIds, desiredBookmarkKeys, {
+    protectedIds: activeManagedBookmarkIds,
+    removeByKey: rootFolder
+      ? (key) => removeObsoleteBookmarkByKey(rootFolder, key, desiredBookmarkUrls, activeManagedBookmarkIds)
+      : undefined
+  });
+  pruneObsoleteIds(bookmarkBar, settings.state.managedFolderIds, desiredFolderKeys, {
+    protectedIds: activeManagedFolderIds
+  });
 
   const now = nowChromeMicros();
   bookmarkBar.date_modified = now;
@@ -97,6 +119,7 @@ function applyFolder(
   managedBookmarkIds: Record<string, string>,
   desiredFolderKeys: Set<string>,
   desiredBookmarkKeys: Set<string>,
+  desiredBookmarkUrls: Set<string>,
   nextId: () => string
 ): void {
   if (!parent.children) {
@@ -129,19 +152,47 @@ function applyFolder(
     urlNode.url = link.url;
     managedBookmarkIds[link.key] = urlNode.id;
     desiredBookmarkKeys.add(link.key);
+    desiredBookmarkUrls.add(link.url);
   }
 
   for (const child of desired.children) {
-    applyFolder(child, folderNode, oldFolderIds, oldBookmarkIds, managedFolderIds, managedBookmarkIds, desiredFolderKeys, desiredBookmarkKeys, nextId);
+    applyFolder(
+      child,
+      folderNode,
+      oldFolderIds,
+      oldBookmarkIds,
+      managedFolderIds,
+      managedBookmarkIds,
+      desiredFolderKeys,
+      desiredBookmarkKeys,
+      desiredBookmarkUrls,
+      nextId
+    );
   }
 }
 
-function pruneObsoleteIds(root: BookmarkNode, oldMap: Record<string, string>, stillDesired: Set<string>): void {
+function pruneObsoleteIds(
+  root: BookmarkNode,
+  oldMap: Record<string, string>,
+  stillDesired: Set<string>,
+  options?: {
+    protectedIds?: Set<string>;
+    removeByKey?: (key: string) => boolean;
+  }
+): void {
   for (const [key, id] of Object.entries(oldMap)) {
     if (stillDesired.has(key)) {
       continue;
     }
-    removeById(root, id);
+
+    if (options?.protectedIds?.has(id)) {
+      continue;
+    }
+
+    const removedById = removeById(root, id);
+    if (!removedById) {
+      options?.removeByKey?.(key);
+    }
   }
 }
 
@@ -157,6 +208,47 @@ function removeById(node: BookmarkNode, id: string): boolean {
   }
 
   return node.children.some((c) => removeById(c, id));
+}
+
+function removeObsoleteBookmarkByKey(
+  root: BookmarkNode,
+  key: string,
+  desiredBookmarkUrls: Set<string>,
+  protectedIds: Set<string>
+): boolean {
+  const url = parseBookmarkUrlFromManagedKey(key);
+  if (!url || desiredBookmarkUrls.has(url)) {
+    return false;
+  }
+  return removeFirstUrl(root, url, protectedIds);
+}
+
+function parseBookmarkUrlFromManagedKey(key: string): string | null {
+  const separator = key.indexOf("|");
+  if (separator < 0) {
+    return null;
+  }
+  const url = key.slice(separator + 1);
+  if (!url.startsWith("http://") && !url.startsWith("https://")) {
+    return null;
+  }
+  return url;
+}
+
+function removeFirstUrl(node: BookmarkNode, url: string, protectedIds: Set<string>): boolean {
+  if (!node.children) {
+    return false;
+  }
+
+  const idx = node.children.findIndex(
+    (child) => child.type === "url" && child.url === url && !protectedIds.has(child.id)
+  );
+  if (idx >= 0) {
+    node.children.splice(idx, 1);
+    return true;
+  }
+
+  return node.children.some((child) => removeFirstUrl(child, url, protectedIds));
 }
 
 function findFolderForKey(parent: BookmarkNode, name: string, preferredId?: string): BookmarkNode | undefined {

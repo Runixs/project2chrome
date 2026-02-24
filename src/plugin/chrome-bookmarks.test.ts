@@ -1,0 +1,79 @@
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { describe, it } from "node:test";
+import { syncIntoChromeBookmarks } from "./chrome-bookmarks";
+import { DEFAULT_SETTINGS, type Project2ChromeSettings } from "./types";
+
+describe("syncIntoChromeBookmarks", () => {
+  it("removes obsolete bookmark even when saved id is stale", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "project2chrome-"));
+    const bookmarksPath = path.join(tempDir, "Bookmarks");
+
+    try {
+      const initial = {
+        roots: {
+          bookmark_bar: {
+            id: "1",
+            type: "folder",
+            name: "Bookmarks bar",
+            children: [
+              {
+                id: "10",
+                type: "folder",
+                name: "Projects",
+                children: [
+                  {
+                    id: "20",
+                    type: "url",
+                    name: "Example",
+                    url: "https://example.com/"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      };
+
+      await writeFile(bookmarksPath, `${JSON.stringify(initial, null, 2)}\n`, "utf8");
+
+      const settings: Project2ChromeSettings = {
+        ...DEFAULT_SETTINGS,
+        chromeBookmarksFileByOs: {
+          macos: bookmarksPath,
+          linux: bookmarksPath,
+          windows: bookmarksPath
+        },
+        state: {
+          managedFolderIds: { __root__: "10" },
+          managedBookmarkIds: {
+            "notes/a.md|https://example.com/": "999"
+          }
+        }
+      };
+
+      const nextState = await syncIntoChromeBookmarks([], settings, {
+        rootFolderName: "Projects",
+        ensureRoot: true
+      });
+
+      const updatedRaw = await readFile(bookmarksPath, "utf8");
+      const updated = JSON.parse(updatedRaw) as {
+        roots: {
+          bookmark_bar: {
+            children?: Array<{ id: string; type: string; name: string; children?: Array<{ type: string; url?: string }> }>;
+          };
+        };
+      };
+
+      const rootFolder = (updated.roots.bookmark_bar.children ?? []).find((child) => child.id === "10");
+      assert.ok(rootFolder);
+      assert.equal((rootFolder.children ?? []).filter((child) => child.type === "url").length, 0);
+      assert.deepEqual(nextState.managedBookmarkIds, {});
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+});

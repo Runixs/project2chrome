@@ -1,17 +1,74 @@
 const STORAGE_KEY = "project2chrome_state";
+const BRIDGE_CONFIG_KEY = "project2chrome_bridge";
+const DEFAULT_BRIDGE = {
+  url: "http://127.0.0.1:27123/payload",
+  token: "project2chrome-local",
+  autoSync: true
+};
+
+chrome.runtime.onInstalled.addListener(async () => {
+  await ensureBridgeConfig();
+  await ensureAutoSyncAlarm();
+});
+
+chrome.runtime.onStartup.addListener(async () => {
+  await ensureBridgeConfig();
+  await ensureAutoSyncAlarm();
+});
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name !== "project2chrome.autoSync") {
+    return;
+  }
+  void syncFromBridge().catch(() => {});
+});
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message || typeof message !== "object") {
     return;
   }
 
-  if (message.type === "project2chrome.sync") {
-    void syncFromPayload(message.payload)
+  if (message.type === "project2chrome.syncFromBridge") {
+    void syncFromBridge()
       .then((result) => sendResponse({ ok: true, result }))
       .catch((error) => sendResponse({ ok: false, error: String(error) }));
     return true;
   }
+
+  if (message.type === "project2chrome.getBridgeConfig") {
+    void getBridgeConfig().then((config) => sendResponse({ ok: true, config }));
+    return true;
+  }
+
+  if (message.type === "project2chrome.setBridgeConfig") {
+    void setBridgeConfig(message.config)
+      .then(async (config) => {
+        if (config.autoSync) {
+          await ensureAutoSyncAlarm();
+        } else {
+          await chrome.alarms.clear("project2chrome.autoSync");
+        }
+        sendResponse({ ok: true, config });
+      })
+      .catch((error) => sendResponse({ ok: false, error: String(error) }));
+    return true;
+  }
 });
+
+async function syncFromBridge() {
+  const config = await getBridgeConfig();
+  const response = await fetch(config.url, {
+    method: "GET",
+    headers: {
+      "X-Project2Chrome-Token": config.token
+    }
+  });
+  if (!response.ok) {
+    throw new Error(`Bridge fetch failed: ${response.status} ${response.statusText}`);
+  }
+  const payload = await response.json();
+  return syncFromPayload(payload);
+}
 
 async function syncFromPayload(payload) {
   const rootFolderName = (payload?.rootFolderName || "Projects").trim() || "Projects";
@@ -147,4 +204,43 @@ async function getNode(id) {
   } catch {
     return null;
   }
+}
+
+async function ensureBridgeConfig() {
+  const existing = await chrome.storage.local.get(BRIDGE_CONFIG_KEY);
+  if (!existing?.[BRIDGE_CONFIG_KEY]) {
+    await chrome.storage.local.set({ [BRIDGE_CONFIG_KEY]: DEFAULT_BRIDGE });
+  }
+}
+
+async function getBridgeConfig() {
+  const raw = await chrome.storage.local.get(BRIDGE_CONFIG_KEY);
+  const config = raw?.[BRIDGE_CONFIG_KEY] || DEFAULT_BRIDGE;
+  return {
+    url: typeof config.url === "string" && config.url.length > 0 ? config.url : DEFAULT_BRIDGE.url,
+    token: typeof config.token === "string" && config.token.length > 0 ? config.token : DEFAULT_BRIDGE.token,
+    autoSync: Boolean(config.autoSync)
+  };
+}
+
+async function setBridgeConfig(input) {
+  const current = await getBridgeConfig();
+  const next = {
+    url: typeof input?.url === "string" && input.url.trim().length > 0 ? input.url.trim() : current.url,
+    token: typeof input?.token === "string" && input.token.trim().length > 0 ? input.token.trim() : current.token,
+    autoSync: typeof input?.autoSync === "boolean" ? input.autoSync : current.autoSync
+  };
+  await chrome.storage.local.set({ [BRIDGE_CONFIG_KEY]: next });
+  return next;
+}
+
+async function ensureAutoSyncAlarm() {
+  const config = await getBridgeConfig();
+  if (!config.autoSync) {
+    await chrome.alarms.clear("project2chrome.autoSync");
+    return;
+  }
+  await chrome.alarms.create("project2chrome.autoSync", {
+    periodInMinutes: 1
+  });
 }

@@ -3,7 +3,8 @@
   "name": "Project2Chrome Bridge",
   "version": "0.1.0",
   "description": "Sync bookmarks from exported Project2Chrome payload.",
-  "permissions": ["bookmarks", "storage"],
+  "permissions": ["bookmarks", "storage", "alarms"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
   "action": {
     "default_title": "Project2Chrome",
     "default_popup": "popup.html"

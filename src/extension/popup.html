@@ -29,9 +29,20 @@
   </head>
   <body>
     <strong>Project2Chrome</strong>
-    <p>Paste exported payload JSON and run sync.</p>
-    <textarea id="payload" placeholder="{ &quot;rootFolderName&quot;: &quot;Projects&quot;, ... }"></textarea>
-    <button id="sync" type="button">Sync Bookmarks</button>
+    <p>Sync directly from Obsidian local bridge.</p>
+    <label>
+      Bridge URL
+      <textarea id="bridge-url" style="min-height:56px" placeholder="http://127.0.0.1:27123/payload"></textarea>
+    </label>
+    <label>
+      Bridge token
+      <textarea id="bridge-token" style="min-height:56px" placeholder="project2chrome-local"></textarea>
+    </label>
+    <label style="display:block;margin-top:8px;">
+      <input id="auto-sync" type="checkbox" /> Auto sync every 1 minute
+    </label>
+    <button id="save" type="button">Save Bridge Settings</button>
+    <button id="sync" type="button">Sync From Obsidian</button>
     <div id="status" class="status"></div>
     <script src="popup.js"></script>
   </body>

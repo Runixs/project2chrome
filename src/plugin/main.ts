@@ -1,6 +1,7 @@
+import { createServer, type Server } from "node:http";
 import type { App, TAbstractFile } from "obsidian";
 import { Notice, Plugin, PluginSettingTab, Setting, TFolder } from "obsidian";
-import { syncIntoChromeBookmarks } from "./chrome-bookmarks";
+import { normalizeBridgePort } from "./extension-bridge-config";
 import { buildExtensionSyncPayload } from "./extension-payload";
 import { buildDesiredTree } from "./model-builder";
 import { DEFAULT_SETTINGS, type Project2ChromeSettings } from "./types";
@@ -10,6 +11,8 @@ export default class Project2ChromePlugin extends Plugin {
   private syncTimer: ReturnType<typeof setTimeout> | null = null;
   private isSyncing = false;
   private syncQueued = false;
+  private bridgeServer: Server | null = null;
+  private latestPayloadJson = "";
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -21,20 +24,14 @@ export default class Project2ChromePlugin extends Plugin {
     this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.onVaultRename(file, oldPath)));
 
     this.addCommand({
-      id: "project2chrome-sync-now",
-      name: "Sync to Chrome bookmarks now",
+      id: "project2chrome-refresh-bridge-payload",
+      name: "Refresh payload for Chrome extension",
       callback: async () => {
         await this.syncNow();
       }
     });
 
-    this.addCommand({
-      id: "project2chrome-export-extension-payload",
-      name: "Export payload for Chrome extension",
-      callback: async () => {
-        await this.exportPayloadForExtension();
-      }
-    });
+    await this.startBridgeServer();
 
     if (this.settings.autoSync) {
       this.scheduleSync();
@@ -46,33 +43,24 @@ export default class Project2ChromePlugin extends Plugin {
       clearTimeout(this.syncTimer);
       this.syncTimer = null;
     }
+    if (this.bridgeServer) {
+      this.bridgeServer.close();
+      this.bridgeServer = null;
+    }
   }
 
   async loadSettings(): Promise<void> {
     const loaded = (await this.loadData()) as Partial<Project2ChromeSettings> | null;
-    const legacyPath = (loaded as { chromeBookmarksFile?: string } | null)?.chromeBookmarksFile;
+
     this.settings = {
       ...DEFAULT_SETTINGS,
       ...loaded,
-      chromeBookmarksFileByOs: {
-        ...DEFAULT_SETTINGS.chromeBookmarksFileByOs,
-        ...(loaded?.chromeBookmarksFileByOs ?? {})
-      },
       bookmarkBarRootMode: loaded?.bookmarkBarRootMode === "target" ? "target" : (loaded?.bookmarkBarRootMode ?? DEFAULT_SETTINGS.bookmarkBarRootMode),
       bookmarkBarRootCustomName: loaded?.bookmarkBarRootCustomName ?? DEFAULT_SETTINGS.bookmarkBarRootCustomName,
-      state: {
-        ...DEFAULT_SETTINGS.state,
-        ...(loaded?.state ?? {})
-      }
+      extensionBridgeEnabled: loaded?.extensionBridgeEnabled ?? DEFAULT_SETTINGS.extensionBridgeEnabled,
+      extensionBridgePort: normalizeBridgePort(loaded?.extensionBridgePort ?? DEFAULT_SETTINGS.extensionBridgePort),
+      extensionBridgeToken: (loaded?.extensionBridgeToken ?? DEFAULT_SETTINGS.extensionBridgeToken).trim() || DEFAULT_SETTINGS.extensionBridgeToken
     };
-
-    if (legacyPath && !loaded?.chromeBookmarksFileByOs) {
-      this.settings.chromeBookmarksFileByOs = {
-        macos: legacyPath,
-        linux: legacyPath,
-        windows: legacyPath
-      };
-    }
   }
 
   async saveSettings(): Promise<void> {
@@ -113,25 +101,6 @@ export default class Project2ChromePlugin extends Plugin {
     await this.runSync();
   }
 
-  private async exportPayloadForExtension(): Promise<void> {
-    try {
-      const target = this.app.vault.getAbstractFileByPath(this.settings.targetFolderPath);
-      if (!(target instanceof TFolder)) {
-        new Notice(`Project2Chrome export failed: target folder missing: ${this.settings.targetFolderPath}`);
-        return;
-      }
-
-      const desired = await buildDesiredTree(this.app.vault, this.settings.targetFolderPath, this.settings.linkHeading);
-      const payload = buildExtensionSyncPayload(desired, this.settings);
-      const outPath = "project2chrome-extension-payload.json";
-      await this.app.vault.adapter.write(outPath, `${JSON.stringify(payload, null, 2)}\n`);
-      new Notice(`Project2Chrome: exported extension payload -> ${outPath}`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      new Notice(`Project2Chrome export failed: ${message}`);
-    }
-  }
-
   private async runSync(): Promise<void> {
     if (this.isSyncing) {
       this.syncQueued = true;
@@ -146,18 +115,15 @@ export default class Project2ChromePlugin extends Plugin {
       const desired = targetExists
         ? await buildDesiredTree(this.app.vault, this.settings.targetFolderPath, this.settings.linkHeading)
         : [];
-      const nextState = await syncIntoChromeBookmarks(desired, this.settings, {
-        rootFolderName: resolveRootFolderName(this.settings),
-        ensureRoot: targetExists
-      });
-      this.settings.state = nextState;
+      const payload = buildExtensionSyncPayload(desired, this.settings);
+      this.latestPayloadJson = `${JSON.stringify(payload, null, 2)}\n`;
       await this.saveSettings();
       if (!targetExists) {
-        new Notice(`Project2Chrome: target folder missing, managed bookmarks removed: ${this.settings.targetFolderPath}`);
+        new Notice(`Project2Chrome: target folder missing, serving empty payload: ${this.settings.targetFolderPath}`);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      new Notice(`Project2Chrome sync failed: ${message}`);
+      new Notice(`Project2Chrome payload refresh failed: ${message}`);
     } finally {
       this.isSyncing = false;
       if (this.syncQueued) {
@@ -165,6 +131,65 @@ export default class Project2ChromePlugin extends Plugin {
         this.scheduleSync();
       }
     }
+  }
+
+  async startBridgeServer(): Promise<void> {
+    if (this.bridgeServer) {
+      this.bridgeServer.close();
+      this.bridgeServer = null;
+    }
+    if (!this.settings.extensionBridgeEnabled) {
+      return;
+    }
+
+    this.bridgeServer = createServer((req, res) => {
+      const method = req.method ?? "GET";
+      const requestUrl = new URL(req.url ?? "/", "http://127.0.0.1");
+
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Project2Chrome-Token");
+
+      if (method === "OPTIONS") {
+        res.writeHead(200);
+        res.end();
+        return;
+      }
+
+      if (requestUrl.pathname === "/health") {
+        res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+        res.end('{"ok":true}\n');
+        return;
+      }
+
+      if (requestUrl.pathname !== "/payload" || method !== "GET") {
+        res.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
+        res.end('{"error":"not found"}\n');
+        return;
+      }
+
+      const tokenHeader = req.headers["x-project2chrome-token"];
+      const tokenValue = Array.isArray(tokenHeader) ? tokenHeader[0] : tokenHeader;
+      if ((tokenValue ?? "") !== this.settings.extensionBridgeToken) {
+        res.writeHead(401, { "Content-Type": "application/json; charset=utf-8" });
+        res.end('{"error":"unauthorized"}\n');
+        return;
+      }
+
+      if (!this.latestPayloadJson) {
+        res.writeHead(503, { "Content-Type": "application/json; charset=utf-8" });
+        res.end('{"error":"payload not ready"}\n');
+        return;
+      }
+
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+      res.end(this.latestPayloadJson);
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      this.bridgeServer?.once("error", reject);
+      this.bridgeServer?.listen(this.settings.extensionBridgePort, "127.0.0.1", () => resolve());
+    });
   }
 }
 
@@ -234,40 +259,40 @@ class Project2ChromeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Chrome Bookmarks file (macOS)")
-      .setDesc("Path used when running Obsidian on macOS")
+      .setName("Extension bridge enabled")
+      .setDesc("Serve payload to Chrome extension over localhost")
+      .addToggle((toggle) => {
+        toggle.setValue(this.plugin.settings.extensionBridgeEnabled).onChange(async (value) => {
+          this.plugin.settings.extensionBridgeEnabled = value;
+          await this.plugin.saveSettings();
+          await this.plugin.startBridgeServer();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Extension bridge port")
+      .setDesc("Localhost port for extension payload endpoint")
       .addText((text) => {
         text
-          .setPlaceholder("~/Library/Application Support/Google/Chrome/Default/Bookmarks")
-          .setValue(this.plugin.settings.chromeBookmarksFileByOs.macos)
+          .setPlaceholder("27123")
+          .setValue(String(this.plugin.settings.extensionBridgePort))
           .onChange(async (value) => {
-            this.plugin.settings.chromeBookmarksFileByOs.macos = value.trim();
+            const parsed = Number.parseInt(value, 10);
+            this.plugin.settings.extensionBridgePort = normalizeBridgePort(parsed);
             await this.plugin.saveSettings();
+            await this.plugin.startBridgeServer();
           });
       });
 
     new Setting(containerEl)
-      .setName("Chrome Bookmarks file (Linux)")
-      .setDesc("Path used when running Obsidian on Linux")
+      .setName("Extension bridge token")
+      .setDesc("Shared token required by extension request header")
       .addText((text) => {
         text
-          .setPlaceholder("~/.config/google-chrome/Default/Bookmarks")
-          .setValue(this.plugin.settings.chromeBookmarksFileByOs.linux)
+          .setPlaceholder("project2chrome-local")
+          .setValue(this.plugin.settings.extensionBridgeToken)
           .onChange(async (value) => {
-            this.plugin.settings.chromeBookmarksFileByOs.linux = value.trim();
-            await this.plugin.saveSettings();
-          });
-      });
-
-    new Setting(containerEl)
-      .setName("Chrome Bookmarks file (Windows)")
-      .setDesc("Path used when running Obsidian on Windows")
-      .addText((text) => {
-        text
-          .setPlaceholder("~/AppData/Local/Google/Chrome/User Data/Default/Bookmarks")
-          .setValue(this.plugin.settings.chromeBookmarksFileByOs.windows)
-          .onChange(async (value) => {
-            this.plugin.settings.chromeBookmarksFileByOs.windows = value.trim();
+            this.plugin.settings.extensionBridgeToken = value.trim() || DEFAULT_SETTINGS.extensionBridgeToken;
             await this.plugin.saveSettings();
           });
       });
@@ -297,8 +322,8 @@ class Project2ChromeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Sync now")
-      .setDesc("Run a full sync immediately")
+      .setName("Refresh payload now")
+      .setDesc("Rebuild payload served to extension immediately")
       .addButton((button) => {
         button.setButtonText("Run").onClick(async () => {
           await this.plugin.syncNow();
@@ -312,14 +337,4 @@ function isInsideTarget(filePath: string, target: string): boolean {
     return false;
   }
   return filePath === target || filePath.startsWith(`${target}/`);
-}
-
-function resolveRootFolderName(settings: Project2ChromeSettings): string {
-  if (settings.bookmarkBarRootMode === "target") {
-    const trimmed = settings.targetFolderPath.trim().replace(/\/+$/, "");
-    const parts = trimmed.split("/").filter((part) => part.length > 0);
-    const last = parts[parts.length - 1] ?? "Projects";
-    return last;
-  }
-  return settings.bookmarkBarRootCustomName.trim() || "Projects";
 }

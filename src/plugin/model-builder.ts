@@ -1,9 +1,14 @@
 import type { TAbstractFile, Vault } from "obsidian";
 import { TFile, TFolder } from "obsidian";
 import { parseLinksFromHeading } from "./link-parser";
-import type { DesiredFolder } from "./types";
+import type { DesiredFolder, LinkItem } from "./types";
 
-export async function buildDesiredTree(vault: Vault, targetFolderPath: string, heading: string): Promise<DesiredFolder[]> {
+export async function buildDesiredTree(
+  vault: Vault,
+  targetFolderPath: string,
+  heading: string,
+  useFolderNotesPlugin: boolean
+): Promise<DesiredFolder[]> {
   const target = vault.getAbstractFileByPath(targetFolderPath);
   if (!(target instanceof TFolder)) {
     return [];
@@ -13,7 +18,7 @@ export async function buildDesiredTree(vault: Vault, targetFolderPath: string, h
 
   for (const child of target.children) {
     if (child instanceof TFolder) {
-      roots.push(await buildFolder(vault, child, heading));
+      roots.push(await buildFolder(vault, child, heading, useFolderNotesPlugin));
       continue;
     }
     if (isMarkdownFile(child)) {
@@ -24,16 +29,22 @@ export async function buildDesiredTree(vault: Vault, targetFolderPath: string, h
   return roots;
 }
 
-async function buildFolder(vault: Vault, folder: TFolder, heading: string): Promise<DesiredFolder> {
+async function buildFolder(vault: Vault, folder: TFolder, heading: string, useFolderNotesPlugin: boolean): Promise<DesiredFolder> {
   const children: DesiredFolder[] = [];
+  let links: LinkItem[] = [];
 
   for (const child of folder.children) {
     if (child instanceof TFolder) {
-      children.push(await buildFolder(vault, child, heading));
+      children.push(await buildFolder(vault, child, heading, useFolderNotesPlugin));
       continue;
     }
 
     if (isMarkdownFile(child)) {
+      if (useFolderNotesPlugin && child.basename === folder.name) {
+        const content = await vault.read(child);
+        links = parseLinksFromHeading(content, heading, child.path);
+        continue;
+      }
       children.push(await buildNoteFolder(vault, child, heading));
     }
   }
@@ -43,7 +54,7 @@ async function buildFolder(vault: Vault, folder: TFolder, heading: string): Prom
     path: folder.path,
     name: folder.name,
     children,
-    links: []
+    links
   };
 }
 

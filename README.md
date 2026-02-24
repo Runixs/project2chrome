@@ -40,6 +40,7 @@ Build artifacts:
 
 - `Target folder path`: Vault-relative root folder to mirror (example: `Projects`).
 - `Link heading`: Heading text used for extraction (supports `Link` or `### Link`, default `Link`).
+- `Folder Notes Plugin Use`: when enabled, a folder-note markdown file (same name as its folder) contributes links directly to that folder node instead of creating a duplicated child note folder.
 - `Root folder mode`:
   - `Custom`: use `Custom root folder name`
   - `Use target folder name`: use the last segment of target path

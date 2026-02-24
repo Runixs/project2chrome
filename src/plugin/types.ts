@@ -15,6 +15,7 @@ export interface DesiredFolder {
 export interface Project2ChromeSettings {
   targetFolderPath: string;
   linkHeading: string;
+  useFolderNotesPlugin: boolean;
   bookmarkBarRootMode: "custom" | "target";
   bookmarkBarRootCustomName: string;
   autoSync: boolean;
@@ -27,6 +28,7 @@ export interface Project2ChromeSettings {
 export const DEFAULT_SETTINGS: Project2ChromeSettings = {
   targetFolderPath: "1_Projects",
   linkHeading: "Link",
+  useFolderNotesPlugin: false,
   bookmarkBarRootMode: "custom",
   bookmarkBarRootCustomName: "Projects",
   autoSync: true,

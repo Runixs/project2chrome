@@ -55,6 +55,7 @@ export default class Project2ChromePlugin extends Plugin {
     this.settings = {
       ...DEFAULT_SETTINGS,
       ...loaded,
+      useFolderNotesPlugin: loaded?.useFolderNotesPlugin ?? DEFAULT_SETTINGS.useFolderNotesPlugin,
       bookmarkBarRootMode: loaded?.bookmarkBarRootMode === "target" ? "target" : (loaded?.bookmarkBarRootMode ?? DEFAULT_SETTINGS.bookmarkBarRootMode),
       bookmarkBarRootCustomName: loaded?.bookmarkBarRootCustomName ?? DEFAULT_SETTINGS.bookmarkBarRootCustomName,
       extensionBridgeEnabled: loaded?.extensionBridgeEnabled ?? DEFAULT_SETTINGS.extensionBridgeEnabled,
@@ -113,7 +114,12 @@ export default class Project2ChromePlugin extends Plugin {
     this.isSyncing = true;
     try {
       const desired = targetExists
-        ? await buildDesiredTree(this.app.vault, this.settings.targetFolderPath, this.settings.linkHeading)
+        ? await buildDesiredTree(
+            this.app.vault,
+            this.settings.targetFolderPath,
+            this.settings.linkHeading,
+            this.settings.useFolderNotesPlugin
+          )
         : [];
       const payload = buildExtensionSyncPayload(desired, this.settings);
       this.latestPayloadJson = `${JSON.stringify(payload, null, 2)}\n`;
@@ -229,6 +235,16 @@ class Project2ChromeSettingTab extends PluginSettingTab {
             this.plugin.settings.linkHeading = value.trim() || "Link";
             await this.plugin.saveSettings();
           });
+      });
+
+    new Setting(containerEl)
+      .setName("Folder Notes Plugin Use")
+      .setDesc("When enabled, folder-note file links (same name as folder) are placed directly under that folder")
+      .addToggle((toggle) => {
+        toggle.setValue(this.plugin.settings.useFolderNotesPlugin).onChange(async (value) => {
+          this.plugin.settings.useFolderNotesPlugin = value;
+          await this.plugin.saveSettings();
+        });
       });
 
     new Setting(containerEl)

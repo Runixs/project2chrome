@@ -1,6 +1,7 @@
 import type { App, TAbstractFile } from "obsidian";
 import { Notice, Plugin, PluginSettingTab, Setting, TFolder } from "obsidian";
 import { syncIntoChromeBookmarks } from "./chrome-bookmarks";
+import { buildExtensionSyncPayload } from "./extension-payload";
 import { buildDesiredTree } from "./model-builder";
 import { DEFAULT_SETTINGS, type Project2ChromeSettings } from "./types";
 
@@ -24,6 +25,14 @@ export default class Project2ChromePlugin extends Plugin {
       name: "Sync to Chrome bookmarks now",
       callback: async () => {
         await this.syncNow();
+      }
+    });
+
+    this.addCommand({
+      id: "project2chrome-export-extension-payload",
+      name: "Export payload for Chrome extension",
+      callback: async () => {
+        await this.exportPayloadForExtension();
       }
     });
 
@@ -102,6 +111,25 @@ export default class Project2ChromePlugin extends Plugin {
 
   async syncNow(): Promise<void> {
     await this.runSync();
+  }
+
+  private async exportPayloadForExtension(): Promise<void> {
+    try {
+      const target = this.app.vault.getAbstractFileByPath(this.settings.targetFolderPath);
+      if (!(target instanceof TFolder)) {
+        new Notice(`Project2Chrome export failed: target folder missing: ${this.settings.targetFolderPath}`);
+        return;
+      }
+
+      const desired = await buildDesiredTree(this.app.vault, this.settings.targetFolderPath, this.settings.linkHeading);
+      const payload = buildExtensionSyncPayload(desired, this.settings);
+      const outPath = "project2chrome-extension-payload.json";
+      await this.app.vault.adapter.write(outPath, `${JSON.stringify(payload, null, 2)}\n`);
+      new Notice(`Project2Chrome: exported extension payload -> ${outPath}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      new Notice(`Project2Chrome export failed: ${message}`);
+    }
   }
 
   private async runSync(): Promise<void> {

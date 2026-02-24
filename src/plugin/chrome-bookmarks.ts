@@ -31,11 +31,12 @@ export async function syncIntoChromeBookmarks(
   settings: Project2ChromeSettings,
   options: { rootFolderName: string; ensureRoot: boolean }
 ): Promise<{ managedFolderIds: Record<string, string>; managedBookmarkIds: Record<string, string> }> {
-  const bookmarkPath = expandHome(resolveBookmarksPathForCurrentOs(settings));
-  await access(bookmarkPath);
+  const configuredPath = resolveBookmarksPathForCurrentOs(settings);
+  const bookmarkPath = normalizeBookmarksPath(configuredPath);
+  await assertBookmarksFileAccessible(bookmarkPath, configuredPath);
 
   const raw = await readFile(bookmarkPath, "utf8");
-  const data = JSON.parse(raw) as BookmarksData;
+  const data = parseBookmarksJson(raw, bookmarkPath);
 
   const bookmarkBar = data.roots.bookmark_bar;
   if (!bookmarkBar.children) {
@@ -104,8 +105,18 @@ export async function syncIntoChromeBookmarks(
   data.checksum_sha256 = computeSha256Checksum(data);
 
   const tmpPath = `${bookmarkPath}.tmp`;
-  await writeFile(tmpPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
-  await rename(tmpPath, bookmarkPath);
+  try {
+    await writeFile(tmpPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+    await rename(tmpPath, bookmarkPath);
+  } catch (error) {
+    const details = formatFsError(error);
+    if (details.code === "EACCES" || details.code === "EPERM" || details.code === "EBUSY") {
+      throw new Error(
+        `Cannot write Chrome Bookmarks file at ${bookmarkPath}. Close Chrome and try again. (${details.message})`
+      );
+    }
+    throw new Error(`Failed to write Chrome Bookmarks file at ${bookmarkPath}. (${details.message})`);
+  }
 
   return { managedFolderIds, managedBookmarkIds };
 }
@@ -354,11 +365,68 @@ function nowChromeMicros(): string {
   return micros.toString();
 }
 
+export function normalizeBookmarksPath(input: string): string {
+  const trimmed = trimMatchingQuotes(input.trim());
+  const expandedEnv = expandPercentEnvVars(trimmed);
+  const expandedHome = expandHome(expandedEnv);
+  const unifiedSeparators = expandedHome.replace(/[\\/]+/g, path.sep);
+  return path.normalize(unifiedSeparators);
+}
+
+function trimMatchingQuotes(value: string): string {
+  if (value.length < 2) {
+    return value;
+  }
+  const first = value[0];
+  const last = value[value.length - 1];
+  if ((first === "\"" && last === "\"") || (first === "'" && last === "'")) {
+    return value.slice(1, -1).trim();
+  }
+  return value;
+}
+
+function expandPercentEnvVars(input: string): string {
+  return input.replace(/%([^%]+)%/g, (_, name: string) => {
+    const key = name.trim();
+    return process.env[key] ?? process.env[key.toUpperCase()] ?? process.env[key.toLowerCase()] ?? `%${name}%`;
+  });
+}
+
 function expandHome(input: string): string {
-  if (!input.startsWith("~/")) {
+  if (input === "~") {
+    return os.homedir();
+  }
+  if (!input.startsWith("~/") && !input.startsWith("~\\")) {
     return input;
   }
-  return path.join(os.homedir(), input.slice(2));
+  const rest = input.slice(2).replace(/[\\/]+/g, path.sep);
+  return path.join(os.homedir(), rest);
+}
+
+function assertBookmarksFileAccessible(resolvedPath: string, configuredPath: string): Promise<void> {
+  return access(resolvedPath).catch((error: unknown) => {
+    const details = formatFsError(error);
+    throw new Error(
+      `Chrome Bookmarks file is not accessible. configured=${configuredPath}, resolved=${resolvedPath}. (${details.message})`
+    );
+  });
+}
+
+function parseBookmarksJson(raw: string, bookmarkPath: string): BookmarksData {
+  try {
+    return JSON.parse(raw) as BookmarksData;
+  } catch (error) {
+    const details = formatFsError(error);
+    throw new Error(`Chrome Bookmarks file is not valid JSON at ${bookmarkPath}. (${details.message})`);
+  }
+}
+
+function formatFsError(error: unknown): { code: string | undefined; message: string } {
+  if (error instanceof Error) {
+    const withCode = error as NodeJS.ErrnoException;
+    return { code: withCode.code, message: error.message };
+  }
+  return { code: undefined, message: String(error) };
 }
 
 function resolveBookmarksPathForCurrentOs(settings: Project2ChromeSettings): string {

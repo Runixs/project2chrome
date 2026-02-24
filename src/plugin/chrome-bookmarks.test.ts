@@ -3,8 +3,33 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { syncIntoChromeBookmarks } from "./chrome-bookmarks";
+import { normalizeBookmarksPath, syncIntoChromeBookmarks } from "./chrome-bookmarks";
 import { DEFAULT_SETTINGS, type Project2ChromeSettings } from "./types";
+
+describe("normalizeBookmarksPath", () => {
+  it("expands quoted home-relative Windows style path", () => {
+    const input = '"~\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\Bookmarks"';
+    const normalized = normalizeBookmarksPath(input);
+    const expected = path.join(os.homedir(), "AppData", "Local", "Google", "Chrome", "User Data", "Default", "Bookmarks");
+    assert.equal(normalized, expected);
+  });
+
+  it("expands %VAR% environment placeholders", () => {
+    const previous = process.env.LOCALAPPDATA;
+    process.env.LOCALAPPDATA = path.join(os.tmpdir(), "localappdata-sim");
+    try {
+      const normalized = normalizeBookmarksPath("%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Profile 1\\Bookmarks");
+      const expected = path.join(process.env.LOCALAPPDATA, "Google", "Chrome", "User Data", "Profile 1", "Bookmarks");
+      assert.equal(normalized, expected);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.LOCALAPPDATA;
+      } else {
+        process.env.LOCALAPPDATA = previous;
+      }
+    }
+  });
+});
 
 describe("syncIntoChromeBookmarks", () => {
   it("removes obsolete bookmark even when saved id is stale", async () => {

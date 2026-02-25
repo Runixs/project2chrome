@@ -31,7 +31,12 @@ export function applyReverseEvent(event: ReverseEvent, ctx: ReverseApplyContext)
 
   if (ctx.knownKeys) {
     const guardrailResult = validateManagedKey(managedKey, ctx.knownKeys);
-    if (!guardrailResult.eligible) {
+    const allowFolderCreateFallback =
+      !guardrailResult.eligible
+      && event.type === "bookmark_created"
+      && managedKey.startsWith("folder:");
+
+    if (!guardrailResult.eligible && !allowFolderCreateFallback) {
       return {
         eventId: event.eventId,
         status: "skipped_unmanaged",
@@ -237,6 +242,18 @@ function resolveParentCreateTarget(
   }
 
   const fallbackCandidates = collectBookmarkNameMatches(folderPath, ctx);
+  const knownPathNameCandidates = collectKnownPathNameMatches(folderPath, ctx);
+
+  if (knownPathNameCandidates.length === 1) {
+    const onlyKnown = knownPathNameCandidates[0];
+    if (onlyKnown) {
+      return resolveCreateTargetForSourcePath(onlyKnown, ctx);
+    }
+  }
+  if (knownPathNameCandidates.length > 1) {
+    return { ok: false, reason: "folder_parent_ambiguous" };
+  }
+
   if (fallbackCandidates.length === 1) {
     const onlyFallback = fallbackCandidates[0];
     if (onlyFallback) {
@@ -342,6 +359,32 @@ function collectBookmarkNameMatches(folderPath: string, ctx: ReverseApplyContext
   return uniqueStrings(matches);
 }
 
+function collectKnownPathNameMatches(folderPath: string, ctx: ReverseApplyContext): string[] {
+  if (!ctx.knownKeys) {
+    return [];
+  }
+
+  const folderName = getLastPathSegment(folderPath).toLowerCase();
+  if (!folderName) {
+    return [];
+  }
+
+  const matches: string[] = [];
+  for (const notePath of ctx.knownKeys.managedNotePaths) {
+    const normalizedNotePath = trimRelativePath(notePath);
+    if (!normalizedNotePath) {
+      continue;
+    }
+
+    const basename = getNoteBasename(normalizedNotePath).toLowerCase();
+    if (basename === folderName) {
+      matches.push(normalizedNotePath);
+    }
+  }
+
+  return uniqueStrings(matches);
+}
+
 function trimRelativePath(value: string): string {
   return value.trim().replace(/^\/+/, "").replace(/\/+$/, "");
 }
@@ -354,6 +397,14 @@ function getLastPathSegment(value: string): string {
   const parts = normalized.split("/");
   const segment = parts[parts.length - 1];
   return segment ? segment.trim() : "";
+}
+
+function getNoteBasename(pathValue: string): string {
+  const segment = getLastPathSegment(pathValue);
+  if (!segment) {
+    return "";
+  }
+  return segment.toLowerCase().endsWith(".md") ? segment.slice(0, -3) : segment;
 }
 
 function uniqueStrings(values: string[]): string[] {

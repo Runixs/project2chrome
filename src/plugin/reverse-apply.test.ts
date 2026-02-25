@@ -129,6 +129,33 @@ describe("applyReverseEvent", () => {
     assert.ok(writes[0]?.content.includes("- [test](chrome://extensions)"));
   });
 
+  it("applies folder-parent bookmark_created by managed note basename match", () => {
+    const targetPath = "/vault/1_Projects/EASE.md";
+    const { ctx, writes } = makeContext({
+      [targetPath]: ["# EASE", "### Link"].join("\n")
+    });
+    ctx.knownKeys = {
+      managedFolderPaths: new Set(["1_Projects/EASE"]),
+      managedNotePaths: new Set(["1_Projects/EASE.md"])
+    };
+
+    const ack = applyReverseEvent(
+      makeEvent({
+        type: "bookmark_created",
+        managedKey: "folder:EASE",
+        title: "test",
+        url: "chrome://extensions"
+      }),
+      ctx
+    );
+
+    assert.equal(ack.status, "applied");
+    assert.equal(ack.resolvedPath, targetPath);
+    assert.equal(ack.resolvedKey, "1_Projects/EASE.md|0");
+    assert.equal(writes.length, 1);
+    assert.ok(writes[0]?.content.includes("- [test](chrome://extensions)"));
+  });
+
   it("returns skipped_ambiguous when folder-parent create target cannot be resolved", () => {
     const { ctx, writes } = makeContext({});
     ctx.knownKeys = {

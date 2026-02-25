@@ -1,0 +1,26 @@
+{
+  "task": "T8 reverse apply orchestrator",
+  "timestamp": "2026-02-25T00:00:00.000Z",
+  "errorCase": {
+    "source": "reverse-apply.test.ts",
+    "scenario": "writeback failure when heading is missing",
+    "event": {
+      "eventId": "evt-1",
+      "type": "bookmark_updated",
+      "managedKey": "1_Projects/Doc.md|0"
+    },
+    "ack": {
+      "eventId": "evt-1",
+      "status": "skipped_ambiguous",
+      "reason": "heading_not_found"
+    }
+  },
+  "idempotencyCase": {
+    "source": "reverse-apply.test.ts",
+    "scenario": "replay same batch returns duplicate",
+    "ack": {
+      "eventId": "evt-dup-1",
+      "status": "duplicate"
+    }
+  }
+}

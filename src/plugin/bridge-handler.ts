@@ -2,27 +2,27 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import {
   parseAndValidateReverseBatch,
   type BatchAckResponse,
+  type EventAck,
   type ReverseBatch
 } from "./reverse-sync-types";
+import type { ReverseLogger } from "./reverse-logger";
 
-export type ApplyHook = (batch: ReverseBatch) => BatchAckResponse;
+export type ApplyHook = (batch: ReverseBatch) => EventAck[] | Promise<EventAck[]>;
 
 export interface BridgeHandlerConfig {
   expectedToken: string;
   getPayload: () => string;
   processedBatchIds: Set<string>;
   applyHook: ApplyHook;
+  logger?: ReverseLogger;
 }
 
 /** Skeleton apply hook — returns 'applied' for every event. T8 replaces this with real mutation. */
-export function skeletonApplyHook(batch: ReverseBatch): BatchAckResponse {
-  return {
-    batchId: batch.batchId,
-    results: batch.events.map((e) => ({
+export function skeletonApplyHook(batch: ReverseBatch): EventAck[] {
+  return batch.events.map((e) => ({
       eventId: e.eventId,
       status: "applied" as const
-    }))
-  };
+    }));
 }
 
 /**
@@ -33,7 +33,7 @@ export function skeletonApplyHook(batch: ReverseBatch): BatchAckResponse {
 export function createBridgeHandler(
   config: BridgeHandlerConfig
 ): (req: IncomingMessage, res: ServerResponse) => void {
-  const { expectedToken, getPayload, processedBatchIds, applyHook } = config;
+  const { expectedToken, getPayload, processedBatchIds, applyHook, logger } = config;
 
   return (req, res) => {
     const method = req.method ?? "GET";
@@ -59,6 +59,7 @@ export function createBridgeHandler(
       const tokenHeader = req.headers["x-project2chrome-token"];
       const tokenValue = Array.isArray(tokenHeader) ? tokenHeader[0] : tokenHeader;
       if ((tokenValue ?? "") !== expectedToken) {
+        logger?.logError(undefined, undefined, "auth_failure");
         res.writeHead(401, { "Content-Type": "application/json; charset=utf-8" });
         res.end('{"error":"unauthorized"}\n');
         return;
@@ -80,10 +81,13 @@ export function createBridgeHandler(
       const tokenHeader = req.headers["x-project2chrome-token"];
       const tokenValue = Array.isArray(tokenHeader) ? tokenHeader[0] : tokenHeader;
       if ((tokenValue ?? "") !== expectedToken) {
+        logger?.logError(undefined, undefined, "auth_failure");
         res.writeHead(401, { "Content-Type": "application/json; charset=utf-8" });
         res.end('{"error":"unauthorized"}\n');
         return;
       }
+
+      logger?.logEnqueue("request", "request", "reverse_sync_received");
 
       const chunks: Buffer[] = [];
 
@@ -91,11 +95,12 @@ export function createBridgeHandler(
         chunks.push(chunk);
       });
 
-      req.on("end", () => {
+      req.on("end", async () => {
         let parsed: unknown;
         try {
           parsed = JSON.parse(Buffer.concat(chunks).toString("utf-8"));
         } catch {
+          logger?.logError(undefined, undefined, "malformed_json");
           res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
           res.end('{"error":"malformed JSON"}\n');
           return;
@@ -103,12 +108,14 @@ export function createBridgeHandler(
 
         const batch = parseAndValidateReverseBatch(parsed);
         if (!batch) {
+          logger?.logError(undefined, undefined, "invalid_batch");
           res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
           res.end('{"error":"invalid batch"}\n');
           return;
         }
 
         if (processedBatchIds.has(batch.batchId)) {
+          logger?.logFlush(batch.batchId, batch.events.length);
           const dupResponse: BatchAckResponse = {
             batchId: batch.batchId,
             results: batch.events.map((e) => ({
@@ -116,19 +123,40 @@ export function createBridgeHandler(
               status: "duplicate" as const
             }))
           };
+          for (const result of dupResponse.results) {
+            logger?.logAck(batch.batchId, result.eventId, result.status);
+          }
           res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
           res.end(`${JSON.stringify(dupResponse)}\n`);
           return;
         }
 
-        processedBatchIds.add(batch.batchId);
-        const ackResponse = applyHook(batch);
-        res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
-        res.end(`${JSON.stringify(ackResponse)}\n`);
+        try {
+          processedBatchIds.add(batch.batchId);
+          logger?.logFlush(batch.batchId, batch.events.length);
+          const results = await applyHook(batch);
+          const ackResponse: BatchAckResponse = { batchId: batch.batchId, results };
+          for (const result of ackResponse.results) {
+            logger?.logAck(
+              batch.batchId,
+              result.eventId,
+              result.status,
+              result.resolvedPath,
+              result.reason
+            );
+          }
+          res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+          res.end(`${JSON.stringify(ackResponse)}\n`);
+        } catch {
+          logger?.logError(batch.batchId, undefined, "reverse_apply_failed");
+          res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+          res.end('{"error":"reverse apply failed"}\n');
+        }
       });
 
       req.on("error", () => {
         if (!res.headersSent) {
+          logger?.logError(undefined, undefined, "request_read_error");
           res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
           res.end('{"error":"request read error"}\n');
         }

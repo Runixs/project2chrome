@@ -1,0 +1,28 @@
+{
+  "task": "T8 reverse apply orchestrator",
+  "timestamp": "2026-02-25T00:00:00.000Z",
+  "verification": {
+    "command": "npm run test && npm run typecheck && npm run build",
+    "exitCode": 0,
+    "tests": {
+      "total": 89,
+      "pass": 89,
+      "fail": 0
+    },
+    "typecheck": "pass",
+    "build": "pass"
+  },
+  "orchestrator": {
+    "sampleEvent": {
+      "eventId": "evt-1",
+      "type": "bookmark_created",
+      "managedKey": "1_Projects/Doc.md|1"
+    },
+    "ack": {
+      "eventId": "evt-1",
+      "status": "applied",
+      "resolvedPath": "/vault/1_Projects/Doc.md",
+      "resolvedKey": "1_Projects/Doc.md|1"
+    }
+  }
+}

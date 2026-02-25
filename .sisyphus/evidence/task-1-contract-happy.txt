@@ -1,0 +1,177 @@
+
+> project2chrome@0.1.0 test
+> node --import tsx --test src/plugin/*.test.ts
+
+TAP version 13
+# Subtest: normalizeBridgePort
+    # Subtest: uses default when not finite
+    ok 1 - uses default when not finite
+      ---
+      duration_ms: 0.355208
+      ...
+    # Subtest: clamps lower bound
+    ok 2 - clamps lower bound
+      ---
+      duration_ms: 0.063875
+      ...
+    # Subtest: clamps upper bound
+    ok 3 - clamps upper bound
+      ---
+      duration_ms: 0.05675
+      ...
+    # Subtest: returns integer port in range
+    ok 4 - returns integer port in range
+      ---
+      duration_ms: 0.11975
+      ...
+    1..4
+ok 1 - normalizeBridgePort
+  ---
+  duration_ms: 1.159583
+  type: 'suite'
+  ...
+# Subtest: buildExtensionSyncPayload
+    # Subtest: uses custom root folder mode
+    ok 1 - uses custom root folder mode
+      ---
+      duration_ms: 1.34175
+      ...
+    # Subtest: uses target folder name when target mode is selected
+    ok 2 - uses target folder name when target mode is selected
+      ---
+      duration_ms: 0.13475
+      ...
+    1..2
+ok 2 - buildExtensionSyncPayload
+  ---
+  duration_ms: 2.014875
+  type: 'suite'
+  ...
+# Subtest: extractBookmarkNameFromFrontmatter
+    # Subtest: extracts bookmark_name from simple frontmatter
+    ok 1 - extracts bookmark_name from simple frontmatter
+      ---
+      duration_ms: 0.563459
+      ...
+    # Subtest: supports quoted bookmark_name
+    ok 2 - supports quoted bookmark_name
+      ---
+      duration_ms: 0.099
+      ...
+    # Subtest: returns null when bookmark_name is missing
+    ok 3 - returns null when bookmark_name is missing
+      ---
+      duration_ms: 0.115167
+      ...
+    # Subtest: returns null when frontmatter is missing
+    ok 4 - returns null when frontmatter is missing
+      ---
+      duration_ms: 0.12625
+      ...
+    # Subtest: returns null for empty bookmark_name
+    ok 5 - returns null for empty bookmark_name
+      ---
+      duration_ms: 0.052167
+      ...
+    1..5
+ok 3 - extractBookmarkNameFromFrontmatter
+  ---
+  duration_ms: 1.515333
+  type: 'suite'
+  ...
+# Subtest: parseLinksFromHeading
+    # Subtest: extracts markdown links under target heading
+    ok 1 - extracts markdown links under target heading
+      ---
+      duration_ms: 1.02925
+      ...
+    # Subtest: ignores bare urls even when listed as bullets
+    ok 2 - ignores bare urls even when listed as bullets
+      ---
+      duration_ms: 0.094584
+      ...
+    # Subtest: extracts multiple markdown bullets in the same section
+    ok 3 - extracts multiple markdown bullets in the same section
+      ---
+      duration_ms: 0.101083
+      ...
+    # Subtest: keeps duplicate urls as separate bookmarks in line order
+    ok 4 - keeps duplicate urls as separate bookmarks in line order
+      ---
+      duration_ms: 0.162333
+      ...
+    # Subtest: accepts configured heading with markdown hashes
+    ok 5 - accepts configured heading with markdown hashes
+      ---
+      duration_ms: 0.116083
+      ...
+    # Subtest: returns empty when heading does not exist
+    ok 6 - returns empty when heading does not exist
+      ---
+      duration_ms: 0.055375
+      ...
+    # Subtest: parses markdown link titles containing inner brackets
+    ok 7 - parses markdown link titles containing inner brackets
+      ---
+      duration_ms: 0.072833
+      ...
+    1..7
+ok 4 - parseLinksFromHeading
+  ---
+  duration_ms: 2.262083
+  type: 'suite'
+  ...
+# Subtest: parseAndValidateReverseBatch
+    # Subtest: parses a valid reverse batch
+    ok 1 - parses a valid reverse batch
+      ---
+      duration_ms: 0.544709
+      ...
+    # Subtest: rejects when eventId is missing
+    ok 2 - rejects when eventId is missing
+      ---
+      duration_ms: 0.074416
+      ...
+    # Subtest: rejects when type is missing
+    ok 3 - rejects when type is missing
+      ---
+      duration_ms: 0.062709
+      ...
+    # Subtest: rejects when type is unknown
+    ok 4 - rejects when type is unknown
+      ---
+      duration_ms: 0.05625
+      ...
+    # Subtest: accepts empty events array
+    ok 5 - accepts empty events array
+      ---
+      duration_ms: 0.314375
+      ...
+    # Subtest: uses batchId fallback and default schema version for legacy events
+    ok 6 - uses batchId fallback and default schema version for legacy events
+      ---
+      duration_ms: 0.063166
+      ...
+    1..6
+ok 5 - parseAndValidateReverseBatch
+  ---
+  duration_ms: 1.728041
+  type: 'suite'
+  ...
+1..5
+# tests 24
+# suites 5
+# pass 24
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 135.732666
+
+> project2chrome@0.1.0 typecheck
+> tsc --noEmit
+
+
+> project2chrome@0.1.0 build
+> node scripts/build.mjs
+

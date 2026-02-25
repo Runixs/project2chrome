@@ -6,9 +6,10 @@ Project2Chrome is an Obsidian desktop plugin that builds and serves a bookmark p
 
 - Mirrors a target vault folder recursively into Chrome bookmark folders.
 - Creates a bookmark folder per markdown note, and keeps that note's links inside it.
+- Supports Folder Notes mode: links from a folder-note file (same name as folder) are attached directly to the folder node.
 - Extracts links from `### Link` sections in markdown files.
+- Preserves markdown bullet order exactly and keeps duplicate URLs as separate bookmark entries.
 - Syncs on vault changes (create/modify/delete/rename) with debounce.
-- Maintains managed bookmark/folder state to update existing nodes instead of duplicating.
 - Serves bridge payload over localhost for extension-side sync.
 
 ## Requirements
@@ -73,6 +74,30 @@ Notes:
 - Bare URLs (for example `- https://example.com/docs`) are ignored.
 - Only `http`/`https` links with a markdown label are added as bookmarks.
 - Each markdown note becomes its own bookmark folder; links from that note are stored in that folder.
+- If note frontmatter has `bookmark_name`, that value is used as the bookmark folder name for the note.
+- Link order follows bullet order in the note.
+- Duplicate URLs are allowed and kept as separate entries.
+
+## Folder Notes Mode Example
+
+When `Folder Notes Plugin Use` is enabled and a folder contains a note file with the same name as the folder:
+
+```text
+APS-45429/
+  APS-45429.md
+  APS-47235.md
+```
+
+The bookmark structure is generated as:
+
+```text
+APS-45429/
+  <links from APS-45429.md>
+  APS-47235/
+    <links from APS-47235.md>
+```
+
+If `APS-45429.md` contains frontmatter `bookmark_name: "[VN] Host bootloader"`, the folder node name becomes `[VN] Host bootloader`.
 
 ## Commands
 

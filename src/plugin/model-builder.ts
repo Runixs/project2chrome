@@ -1,5 +1,6 @@
 import type { TAbstractFile, Vault } from "obsidian";
 import { TFile, TFolder } from "obsidian";
+import { extractBookmarkNameFromFrontmatter } from "./frontmatter";
 import { parseLinksFromHeading } from "./link-parser";
 import type { DesiredFolder, LinkItem } from "./types";
 
@@ -32,6 +33,7 @@ export async function buildDesiredTree(
 async function buildFolder(vault: Vault, folder: TFolder, heading: string, useFolderNotesPlugin: boolean): Promise<DesiredFolder> {
   const children: DesiredFolder[] = [];
   let links: LinkItem[] = [];
+  let folderName = folder.name;
 
   for (const child of folder.children) {
     if (child instanceof TFolder) {
@@ -43,6 +45,7 @@ async function buildFolder(vault: Vault, folder: TFolder, heading: string, useFo
       if (useFolderNotesPlugin && isFolderNoteFile(child, folder)) {
         const content = await vault.read(child);
         links = parseLinksFromHeading(content, heading, child.path);
+        folderName = extractBookmarkNameFromFrontmatter(content) ?? folder.name;
         continue;
       }
       children.push(await buildNoteFolder(vault, child, heading));
@@ -52,7 +55,7 @@ async function buildFolder(vault: Vault, folder: TFolder, heading: string, useFo
   return {
     key: `folder:${folder.path}`,
     path: folder.path,
-    name: folder.name,
+    name: folderName,
     children,
     links
   };
@@ -61,11 +64,12 @@ async function buildFolder(vault: Vault, folder: TFolder, heading: string, useFo
 async function buildNoteFolder(vault: Vault, noteFile: TFile, heading: string): Promise<DesiredFolder> {
   const content = await vault.read(noteFile);
   const links = parseLinksFromHeading(content, heading, noteFile.path);
+  const bookmarkName = extractBookmarkNameFromFrontmatter(content);
 
   return {
     key: `note:${noteFile.path}`,
     path: noteFile.path,
-    name: noteFile.basename,
+    name: bookmarkName ?? noteFile.basename,
     children: [],
     links
   };

@@ -1,0 +1,566 @@
+TAP version 13
+# {"ts":1772014321539,"event":"ack","batchId":"b1","eventId":"evt-1","status":"applied"}
+# {"ts":1772014321541,"event":"ack","batchId":"b1","eventId":"evt-1","status":"applied"}
+# {"ts":1772014321541,"event":"ack","batchId":"b1","eventId":"evt-1","status":"applied"}
+# {"ts":1772014321541,"event":"ack","batchId":"b1","eventId":"evt-1","status":"applied"}
+# {"ts":1772014321541,"event":"ack","batchId":"b1","eventId":"evt-1","status":"duplicate"}
+# {"ts":1772014321542,"event":"ack","batchId":"b1","eventId":"evt-1","status":"duplicate"}
+# {"ts":1772014321542,"event":"skip","batchId":"b1","eventId":"evt-1","status":"skipped_ambiguous","reason":"multiple_matches"}
+# {"ts":1772014321542,"event":"skip","batchId":"b1","eventId":"evt-1","status":"skipped_unmanaged","reason":"unrecognized_key"}
+# {"ts":1772014321543,"event":"error","batchId":"b1","eventId":"evt-1","status":"rejected_invalid","reason":"schema_error"}
+# {"ts":1772014321544,"event":"warn","batchId":"b1","eventId":"evt-1","status":"some_future_status","reason":"unknown_status"}
+# {"ts":1772014321544,"event":"warn","batchId":"b1","eventId":"evt-1","status":"transient_retry","reason":"unknown_status"}
+# {"ts":1772014321544,"event":"ack","batchId":"b1","eventId":"evt-1","status":"applied"}
+# {"ts":1772014321544,"event":"skip","batchId":"b1","eventId":"evt-2","status":"skipped_ambiguous","reason":"multiple_matches"}
+# {"ts":1772014321544,"event":"warn","batchId":"b1","eventId":"evt-3","status":"some_future_status","reason":"unknown_status"}
+# {"ts":1772014321544,"event":"ack","batchId":"b1","eventId":"evt-a","status":"applied"}
+# {"ts":1772014321544,"event":"ack","batchId":"b1","eventId":"evt-b","status":"duplicate"}
+# {"ts":1772014321544,"event":"skip","batchId":"b1","eventId":"evt-c","status":"skipped_unmanaged"}
+# {"ts":1772014321545,"event":"error","batchId":"b1","eventId":"evt-d","status":"rejected_invalid"}
+# {"ts":1772014321545,"event":"warn","batchId":"b1","eventId":"evt-e","status":"mystery_status","reason":"unknown_status"}
+# {"ts":1772014321545,"event":"ack","batchId":"b1","eventId":"evt-1","status":"applied"}
+# {"ts":1772014321545,"event":"ack","batchId":"b1","eventId":"evt-1","status":"applied"}
+# {"ts":1772014321545,"event":"ack","batchId":"b1","eventId":"evt-2","status":"applied"}
+# {"ts":1772014321545,"event":"ack","batchId":"b1","eventId":"evt-1","status":"applied"}
+# Subtest: processReverseAckResponse – applied
+    # Subtest: applied: removes event from queue
+    ok 1 - applied: removes event from queue
+      ---
+      duration_ms: 1.318041
+      ...
+    # Subtest: applied with resolvedKey: updates bookmarkIdToManagedKey
+    ok 2 - applied with resolvedKey: updates bookmarkIdToManagedKey
+      ---
+      duration_ms: 0.159333
+      ...
+    # Subtest: applied without resolvedKey: does not add null/undefined to mapping
+    ok 3 - applied without resolvedKey: does not add null/undefined to mapping
+      ---
+      duration_ms: 0.178292
+      ...
+    # Subtest: applied with resolvedKey: does not overwrite existing stable mapping with empty key
+    ok 4 - applied with resolvedKey: does not overwrite existing stable mapping with empty key
+      ---
+      duration_ms: 0.108
+      ...
+    1..4
+ok 1 - processReverseAckResponse – applied
+  ---
+  duration_ms: 2.196
+  type: 'suite'
+  ...
+# Subtest: processReverseAckResponse – duplicate
+    # Subtest: duplicate: removes event from queue (idempotent, already processed)
+    ok 1 - duplicate: removes event from queue (idempotent, already processed)
+      ---
+      duration_ms: 0.18275
+      ...
+    # Subtest: duplicate: does not update bookmarkIdToManagedKey even if resolvedKey present
+    ok 2 - duplicate: does not update bookmarkIdToManagedKey even if resolvedKey present
+      ---
+      duration_ms: 0.090583
+      ...
+    1..2
+ok 2 - processReverseAckResponse – duplicate
+  ---
+  duration_ms: 0.370375
+  type: 'suite'
+  ...
+# Subtest: processReverseAckResponse – skipped_ambiguous
+    # Subtest: skipped_ambiguous: removes event from queue (final, not retried)
+    ok 1 - skipped_ambiguous: removes event from queue (final, not retried)
+      ---
+      duration_ms: 0.273333
+      ...
+    1..1
+ok 3 - processReverseAckResponse – skipped_ambiguous
+  ---
+  duration_ms: 0.444917
+  type: 'suite'
+  ...
+# Subtest: processReverseAckResponse – skipped_unmanaged
+    # Subtest: skipped_unmanaged: removes event from queue (final, not retried)
+    ok 1 - skipped_unmanaged: removes event from queue (final, not retried)
+      ---
+      duration_ms: 0.14875
+      ...
+    1..1
+ok 4 - processReverseAckResponse – skipped_unmanaged
+  ---
+  duration_ms: 0.230292
+  type: 'suite'
+  ...
+# Subtest: processReverseAckResponse – rejected_invalid
+    # Subtest: rejected_invalid: removes event from queue (final, not retried)
+    ok 1 - rejected_invalid: removes event from queue (final, not retried)
+      ---
+      duration_ms: 0.307125
+      ...
+    1..1
+ok 5 - processReverseAckResponse – rejected_invalid
+  ---
+  duration_ms: 0.522792
+  type: 'suite'
+  ...
+# Subtest: processReverseAckResponse – unknown status
+    # Subtest: unknown status: keeps event in queue for retry
+    ok 1 - unknown status: keeps event in queue for retry
+      ---
+      duration_ms: 0.221291
+      ...
+    # Subtest: unknown status: does not mutate bookmarkIdToManagedKey
+    ok 2 - unknown status: does not mutate bookmarkIdToManagedKey
+      ---
+      duration_ms: 0.097458
+      ...
+    1..2
+ok 6 - processReverseAckResponse – unknown status
+  ---
+  duration_ms: 0.899416
+  type: 'suite'
+  ...
+# Subtest: processReverseAckResponse – mixed batch
+    # Subtest: applied + skipped + unknown: correct subset removed
+    ok 1 - applied + skipped + unknown: correct subset removed
+      ---
+      duration_ms: 0.1975
+      ...
+    # Subtest: all statuses in one batch: correct final queue
+    ok 2 - all statuses in one batch: correct final queue
+      ---
+      duration_ms: 0.345625
+      ...
+    1..2
+ok 7 - processReverseAckResponse – mixed batch
+  ---
+  duration_ms: 0.676875
+  type: 'suite'
+  ...
+# Subtest: processReverseAckResponse – resolvedKey in applied ACK
+    # Subtest: resolvedKey updates bookmarkIdToManagedKey for correct bookmarkId
+    ok 1 - resolvedKey updates bookmarkIdToManagedKey for correct bookmarkId
+      ---
+      duration_ms: 0.101833
+      ...
+    # Subtest: resolvedKey for one event does not affect mapping for another
+    ok 2 - resolvedKey for one event does not affect mapping for another
+      ---
+      duration_ms: 0.15675
+      ...
+    # Subtest: resolvedKey in applied overwrites pre-existing mapping
+    ok 3 - resolvedKey in applied overwrites pre-existing mapping
+      ---
+      duration_ms: 0.060458
+      ...
+    1..3
+ok 8 - processReverseAckResponse – resolvedKey in applied ACK
+  ---
+  duration_ms: 0.382208
+  type: 'suite'
+  ...
+# Subtest: coalesceQueue
+    # Subtest: keeps only the last event for same bookmarkId
+    ok 1 - keeps only the last event for same bookmarkId
+      ---
+      duration_ms: 1.872917
+      ...
+    # Subtest: keeps all events for different bookmarkIds
+    ok 2 - keeps all events for different bookmarkIds
+      ---
+      duration_ms: 0.551542
+      ...
+    # Subtest: returns empty array for empty queue
+    ok 3 - returns empty array for empty queue
+      ---
+      duration_ms: 0.435208
+      ...
+    # Subtest: preserves all folder_renamed items without bookmarkId (no coalescing)
+    ok 4 - preserves all folder_renamed items without bookmarkId (no coalescing)
+      ---
+      duration_ms: 0.454541
+      ...
+    1..4
+ok 9 - coalesceQueue
+  ---
+  duration_ms: 4.058792
+  type: 'suite'
+  ...
+# Subtest: flushReverseQueue
+    # Subtest: dequeues acked events after successful POST
+    ok 1 - dequeues acked events after successful POST
+      ---
+      duration_ms: 2.7755
+      ...
+    # Subtest: retains events and increments retryCount on 503
+    ok 2 - retains events and increments retryCount on 503
+      ---
+      duration_ms: 0.698333
+      ...
+    # Subtest: quarantines events when retryCount reaches 3
+    ok 3 - quarantines events when retryCount reaches 3
+      ---
+      duration_ms: 0.549791
+      ...
+    1..3
+ok 10 - flushReverseQueue
+  ---
+  duration_ms: 4.166625
+  type: 'suite'
+  ...
+# {"ts":1772014321540,"event":"enqueue","batchId":"4e99e557-ca0d-4f6e-9acd-c09d119676a6","eventId":"5aaaf640-5d6e-428c-89a1-a5a795a2714c","type":"bookmark_created"}
+# {"ts":1772014321542,"event":"enqueue","batchId":"feb885da-8cee-48be-a103-ec8557418bf8","eventId":"e170ac07-359d-4f4b-bd6b-8f5cddeed3a4","type":"bookmark_updated"}
+# {"ts":1772014321543,"event":"enqueue","batchId":"b10b0f0b-c7ff-4d20-b12e-863b91c303d3","eventId":"5f58316c-f00b-4896-90be-13fda06976cf","type":"bookmark_deleted"}
+# {"ts":1772014321545,"event":"enqueue","batchId":"f258303a-f970-4b60-8575-b55688b1ea32","eventId":"783dcf0c-5854-4b89-8b3c-5507e0a57637","type":"bookmark_updated"}
+# Subtest: handleBookmarkCreated – managed parent folder
+    # Subtest: enqueues bookmark_created event with correct shape when parent is a managed folder
+    ok 1 - enqueues bookmark_created event with correct shape when parent is a managed folder
+      ---
+      duration_ms: 2.364708
+      ...
+    # Subtest: does NOT enqueue when parent folder is unmanaged
+    ok 2 - does NOT enqueue when parent folder is unmanaged
+      ---
+      duration_ms: 0.176125
+      ...
+    # Subtest: does NOT enqueue during active import window (importInProgress = true)
+    ok 3 - does NOT enqueue during active import window (importInProgress = true)
+      ---
+      duration_ms: 0.087292
+      ...
+    1..3
+ok 11 - handleBookmarkCreated – managed parent folder
+  ---
+  duration_ms: 3.0575
+  type: 'suite'
+  ...
+# Subtest: handleBookmarkChanged – managed bookmark
+    # Subtest: enqueues bookmark_updated event for managed bookmark id
+    ok 1 - enqueues bookmark_updated event for managed bookmark id
+      ---
+      duration_ms: 0.197375
+      ...
+    # Subtest: does NOT enqueue for unmanaged bookmark id
+    ok 2 - does NOT enqueue for unmanaged bookmark id
+      ---
+      duration_ms: 0.080333
+      ...
+    1..2
+ok 12 - handleBookmarkChanged – managed bookmark
+  ---
+  duration_ms: 0.44
+  type: 'suite'
+  ...
+# Subtest: handleBookmarkRemoved – managed bookmark
+    # Subtest: enqueues bookmark_deleted event for managed bookmark id
+    ok 1 - enqueues bookmark_deleted event for managed bookmark id
+      ---
+      duration_ms: 0.828667
+      ...
+    # Subtest: does NOT enqueue for unmanaged id
+    ok 2 - does NOT enqueue for unmanaged id
+      ---
+      duration_ms: 0.212417
+      ...
+    1..2
+ok 13 - handleBookmarkRemoved – managed bookmark
+  ---
+  duration_ms: 1.335
+  type: 'suite'
+  ...
+# Subtest: handleImportBegan
+    # Subtest: sets importInProgress = true in persisted state
+    ok 1 - sets importInProgress = true in persisted state
+      ---
+      duration_ms: 0.151917
+      ...
+    1..1
+ok 14 - handleImportBegan
+  ---
+  duration_ms: 0.244833
+  type: 'suite'
+  ...
+# Subtest: handleImportEnded
+    # Subtest: clears importInProgress to false in persisted state
+    ok 1 - clears importInProgress to false in persisted state
+      ---
+      duration_ms: 0.431084
+      ...
+    1..1
+ok 15 - handleImportEnded
+  ---
+  duration_ms: 0.583875
+  type: 'suite'
+  ...
+# Subtest: handleBookmarkMoved – managed bookmark
+    # Subtest: enqueues bookmark_updated event for managed bookmark id
+    ok 1 - enqueues bookmark_updated event for managed bookmark id
+      ---
+      duration_ms: 0.362833
+      ...
+    # Subtest: does NOT enqueue for unmanaged bookmark id
+    ok 2 - does NOT enqueue for unmanaged bookmark id
+      ---
+      duration_ms: 0.100917
+      ...
+    1..2
+ok 16 - handleBookmarkMoved – managed bookmark
+  ---
+  duration_ms: 0.5435
+  type: 'suite'
+  ...
+# Subtest: suppression – applyEpoch blocks enqueueing
+    # Subtest: handleBookmarkCreated does NOT enqueue when applyEpoch is true
+    ok 1 - handleBookmarkCreated does NOT enqueue when applyEpoch is true
+      ---
+      duration_ms: 0.164625
+      ...
+    # Subtest: handleBookmarkMoved does NOT enqueue when applyEpoch is true
+    ok 2 - handleBookmarkMoved does NOT enqueue when applyEpoch is true
+      ---
+      duration_ms: 0.103833
+      ...
+    1..2
+ok 17 - suppression – applyEpoch blocks enqueueing
+  ---
+  duration_ms: 0.351417
+  type: 'suite'
+  ...
+# {"ts":1772014321543,"event":"enqueue","batchId":"batch-1","eventId":"evt-10","type":"bookmark_created"}
+# {"ts":1772014321544,"event":"enqueue","batchId":"batch-1","eventId":"evt-a","type":"bookmark_created"}
+# {"ts":1772014321544,"event":"enqueue","batchId":"batch-1","eventId":"evt-b","type":"bookmark_created"}
+# {"ts":1772014321544,"event":"enqueue","batchId":"batch-1","eventId":"evt-c","type":"bookmark_created"}
+# {"ts":1772014321544,"event":"enqueue","batchId":"batch-1","eventId":"evt-full","type":"bookmark_created"}
+# Subtest: migrateState – legacy state migration
+    # Subtest: preserves managedFolderIds from old state without data loss
+    ok 1 - preserves managedFolderIds from old state without data loss
+      ---
+      duration_ms: 0.640417
+      ...
+    # Subtest: preserves managedBookmarkIds from old state without data loss
+    ok 2 - preserves managedBookmarkIds from old state without data loss
+      ---
+      duration_ms: 0.269125
+      ...
+    # Subtest: adds reverseQueue as empty array when field is absent
+    ok 3 - adds reverseQueue as empty array when field is absent
+      ---
+      duration_ms: 0.133958
+      ...
+    # Subtest: adds bookmarkIdToManagedKey as empty object when field is absent
+    ok 4 - adds bookmarkIdToManagedKey as empty object when field is absent
+      ---
+      duration_ms: 0.10175
+      ...
+    # Subtest: adds suppressionState with applyEpoch=false, null timestamps when absent
+    ok 5 - adds suppressionState with applyEpoch=false, null timestamps when absent
+      ---
+      duration_ms: 0.0705
+      ...
+    # Subtest: does not overwrite existing reverseQueue items
+    ok 6 - does not overwrite existing reverseQueue items
+      ---
+      duration_ms: 0.069959
+      ...
+    # Subtest: does not overwrite existing bookmarkIdToManagedKey entries
+    ok 7 - does not overwrite existing bookmarkIdToManagedKey entries
+      ---
+      duration_ms: 0.148458
+      ...
+    # Subtest: handles null input without throwing
+    ok 8 - handles null input without throwing
+      ---
+      duration_ms: 0.084
+      ...
+    # Subtest: handles undefined input without throwing
+    ok 9 - handles undefined input without throwing
+      ---
+      duration_ms: 0.157875
+      ...
+    # Subtest: handles a plain string input without throwing
+    ok 10 - handles a plain string input without throwing
+      ---
+      duration_ms: 0.073625
+      ...
+    # Subtest: handles array input (corrupted state) without throwing
+    ok 11 - handles array input (corrupted state) without throwing
+      ---
+      duration_ms: 0.061958
+      ...
+    # Subtest: treats managedFolderIds: null as empty object
+    ok 12 - treats managedFolderIds: null as empty object
+      ---
+      duration_ms: 0.126834
+      ...
+    # Subtest: treats reverseQueue: null as empty array
+    ok 13 - treats reverseQueue: null as empty array
+      ---
+      duration_ms: 0.057625
+      ...
+    # Subtest: preserves partial suppressionState fields safely
+    ok 14 - preserves partial suppressionState fields safely
+      ---
+      duration_ms: 0.062
+      ...
+    1..14
+ok 18 - migrateState – legacy state migration
+  ---
+  duration_ms: 3.222125
+  type: 'suite'
+  ...
+# Subtest: enqueueReverseEvent
+    # Subtest: adds item with retryCount 0 and enqueuedAt ISO timestamp
+    ok 1 - adds item with retryCount 0 and enqueuedAt ISO timestamp
+      ---
+      duration_ms: 1.519625
+      ...
+    # Subtest: appends multiple events in order
+    ok 2 - appends multiple events in order
+      ---
+      duration_ms: 0.165834
+      ...
+    # Subtest: stores the full event object intact
+    ok 3 - stores the full event object intact
+      ---
+      duration_ms: 0.315166
+      ...
+    1..3
+ok 19 - enqueueReverseEvent
+  ---
+  duration_ms: 2.153417
+  type: 'suite'
+  ...
+# Subtest: dequeueAckedEvents
+    # Subtest: removes only events with matching eventIds
+    ok 1 - removes only events with matching eventIds
+      ---
+      duration_ms: 0.14375
+      ...
+    # Subtest: leaves queue unchanged when no ids match
+    ok 2 - leaves queue unchanged when no ids match
+      ---
+      duration_ms: 0.057833
+      ...
+    # Subtest: clears entire queue when all ids are acked
+    ok 3 - clears entire queue when all ids are acked
+      ---
+      duration_ms: 0.10775
+      ...
+    # Subtest: handles empty ackedEventIds without error
+    ok 4 - handles empty ackedEventIds without error
+      ---
+      duration_ms: 0.050125
+      ...
+    # Subtest: handles empty queue without error
+    ok 5 - handles empty queue without error
+      ---
+      duration_ms: 0.046166
+      ...
+    # Subtest: removes all items sharing the same eventId when that id is acked
+    ok 6 - removes all items sharing the same eventId when that id is acked
+      ---
+      duration_ms: 0.046792
+      ...
+    1..6
+ok 20 - dequeueAckedEvents
+  ---
+  duration_ms: 0.567458
+  type: 'suite'
+  ...
+# Subtest: updateBookmarkKeyMapping
+    # Subtest: stores bookmarkId -> managedKey in the reverse lookup map
+    ok 1 - stores bookmarkId -> managedKey in the reverse lookup map
+      ---
+      duration_ms: 0.070542
+      ...
+    # Subtest: overwrites an existing entry for the same bookmarkId
+    ok 2 - overwrites an existing entry for the same bookmarkId
+      ---
+      duration_ms: 0.04075
+      ...
+    # Subtest: stores multiple independent mappings
+    ok 3 - stores multiple independent mappings
+      ---
+      duration_ms: 0.045792
+      ...
+    # Subtest: does not mutate unrelated state fields
+    ok 4 - does not mutate unrelated state fields
+      ---
+      duration_ms: 0.144208
+      ...
+    1..4
+ok 21 - updateBookmarkKeyMapping
+  ---
+  duration_ms: 0.379625
+  type: 'suite'
+  ...
+# Subtest: setApplyEpoch
+    # Subtest: sets applyEpoch=true and records epochStartedAt when activated
+    ok 1 - sets applyEpoch=true and records epochStartedAt when activated
+      ---
+      duration_ms: 0.103917
+      ...
+    # Subtest: sets applyEpoch=false and clears epochStartedAt when deactivated
+    ok 2 - sets applyEpoch=false and clears epochStartedAt when deactivated
+      ---
+      duration_ms: 0.043667
+      ...
+    # Subtest: also clears cooldownUntil when deactivated
+    ok 3 - also clears cooldownUntil when deactivated
+      ---
+      duration_ms: 0.052292
+      ...
+    # Subtest: does not clear cooldownUntil when activating
+    not ok 4 - does not clear cooldownUntil when activating
+      ---
+      duration_ms: 0.863042
+      location: '/Users/runixs/working_local/chrome/local-event-gateway/reverse-queue.test.js:347:3'
+      failureType: 'testCodeFailure'
+      error: |-
+        Expected values to be strictly equal:
+        + actual - expected
+        
+        + 1772013900000
+        - '2026-02-25T10:05:00.000Z'
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      expected: '2026-02-25T10:05:00.000Z'
+      actual: 1772013900000
+      operator: 'strictEqual'
+      stack: |-
+        TestContext.<anonymous> (/Users/runixs/working_local/chrome/local-event-gateway/reverse-queue.test.js:356:12)
+        Test.runInAsyncScope (node:async_hooks:206:9)
+        Test.run (node:internal/test_runner/test:796:25)
+        Suite.processPendingSubtests (node:internal/test_runner/test:527:18)
+        Test.postRun (node:internal/test_runner/test:889:19)
+        Test.run (node:internal/test_runner/test:835:12)
+        async Suite.processPendingSubtests (node:internal/test_runner/test:527:7)
+      ...
+    # Subtest: calling activate twice overwrites epochStartedAt with a fresh timestamp
+    ok 5 - calling activate twice overwrites epochStartedAt with a fresh timestamp
+      ---
+      duration_ms: 7.900791
+      ...
+    # Subtest: does not mutate unrelated state fields
+    ok 6 - does not mutate unrelated state fields
+      ---
+      duration_ms: 0.322792
+      ...
+    1..6
+not ok 22 - setApplyEpoch
+  ---
+  duration_ms: 9.495417
+  type: 'suite'
+  location: '/Users/runixs/working_local/chrome/local-event-gateway/reverse-queue.test.js:313:1'
+  failureType: 'subtestsFailed'
+  error: '1 subtest failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+1..22
+# tests 69
+# suites 22
+# pass 68
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 80.7195

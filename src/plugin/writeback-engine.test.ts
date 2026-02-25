@@ -71,6 +71,25 @@ describe("applyWriteback", () => {
     );
   });
 
+  it("creates at linkIndex 0 inserts before the first existing item", () => {
+    const md = ["### Link", "- [One](https://one.test)", "- [Two](https://two.test)"].join("\n");
+
+    const result = applyWriteback(md, {
+      type: "create",
+      notePath: "a.md",
+      linkIndex: 0,
+      title: "Zero",
+      url: "https://zero.test",
+      linkHeading: "Link"
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(
+      result.newContent,
+      ["### Link", "- [Zero](https://zero.test)", "- [One](https://one.test)", "- [Two](https://two.test)"].join("\n")
+    );
+  });
+
   it("updates title only", () => {
     const md = ["### Link", "- [Old](https://one.test)", "- [Keep](https://two.test)"].join("\n");
 

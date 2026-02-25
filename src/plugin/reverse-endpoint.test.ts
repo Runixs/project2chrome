@@ -125,6 +125,52 @@ describe("bridge reverse-sync endpoint", () => {
     assert.equal(happyResult.status, "applied");
   });
 
+  it("POST /reverse-sync with folder_renamed event type returns 200 with applied ACK", async () => {
+    resolvePort();
+    const batch = {
+      batchId: "batch-folder-rename-001",
+      sentAt: "2026-02-25T10:00:00.000Z",
+      events: [
+        {
+          batchId: "batch-folder-rename-001",
+          eventId: "evt-folder-001",
+          type: "folder_renamed",
+          bookmarkId: "fld-chrome-001",
+          managedKey: "folder:1_Projects/Alpha",
+          occurredAt: "2026-02-25T10:00:00.000Z",
+          schemaVersion: "1",
+          title: "Alpha Renamed"
+        }
+      ]
+    };
+    const res = await httpPost(port, "/reverse-sync", batch, TEST_TOKEN);
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as {
+      batchId: string;
+      results: Array<{ eventId: string; status: string }>;
+    };
+    assert.equal(body.batchId, "batch-folder-rename-001");
+    assert.equal(body.results.length, 1);
+    const result = body.results[0];
+    assert.ok(result !== undefined, "results[0] should exist");
+    assert.equal(result.eventId, "evt-folder-001");
+    assert.equal(result.status, "applied");
+  });
+
+  it("POST /reverse-sync with empty events array returns 200 with empty results", async () => {
+    resolvePort();
+    const batch = {
+      batchId: "batch-empty-events-001",
+      sentAt: "2026-02-25T10:00:00.000Z",
+      events: []
+    };
+    const res = await httpPost(port, "/reverse-sync", batch, TEST_TOKEN);
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { batchId: string; results: Array<unknown> };
+    assert.equal(body.batchId, "batch-empty-events-001");
+    assert.equal(body.results.length, 0);
+  });
+
   // ── Auth failures ──────────────────────────────────────────────────────────
 
   it("POST /reverse-sync with wrong token returns 401 and does not mutate", async () => {

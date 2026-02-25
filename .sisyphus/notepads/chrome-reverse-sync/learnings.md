@@ -255,3 +255,55 @@
 - Plugin: 119 tests pass (up from 92 before T12/T13 additions)
 - Extension: 68/69 pass (1 pre-existing failure in reverse-queue.test.js, NOT in T13-added tests)
 - Evidence: `.sisyphus/evidence/task-13-tests-happy.txt` and `.sisyphus/evidence/task-13-tests-error.txt`
+
+## [2026-02-25] T12 Managed-Only and Ambiguity Skip Guardrails
+
+### Architecture: Pure Guardrail Layer
+- Added `src/plugin/reverse-guardrails.ts` as a zero-side-effect validator with two exports: `validateManagedKey` and `checkAmbiguity`.
+- `ManagedKeySet` type holds two `Set<string>`: `managedNotePaths` and `managedFolderPaths` — injected as `knownKeys?` on `ReverseApplyContext`.
+- `validateManagedKey`: parses `note:<path>`, `folder:<path>`, and `<sourcePath>|<linkIndex>` formats; returns `{ eligible: false, reason: 'skipped_unmanaged' }` for any path not in the managed set or unrecognized format.
+- `checkAmbiguity`: only active for link keys; counts actual markdown link items under the configured heading; uses `linkIndex > count` as the out-of-bounds threshold (allows `== count` for create/append).
+
+### Integration Pattern
+- Guardrails are gated behind `ctx.knownKeys` — if omitted, all existing behavior is preserved (backward compatible).
+- `validateManagedKey` is called early (before `resolveManagedKey`) so unmanaged keys never reach writeback.
+- `checkAmbiguity` is called after `readFile` succeeds, using actual file content for link counting.
+- Both failures return deterministic reasons: `skipped_unmanaged` or `skipped_ambiguous` in both `status` and `reason` fields.
+
+### Link Counting Strategy
+- `countLinksInSection` mirrors the heading-detection logic in `writeback-engine.ts`: strips `#` prefixes, normalizes to lowercase, supports bare (non-`#`) heading lines.
+- Counts only lines matching `^\s*[-*+]\s+\[.+\](https?://...)` — excludes bare URLs and non-link bullets.
+- Avoid `node:path` for path operations — use string slicing instead.
+
+### Testing Patterns
+- 27 new tests across 3 suites: `validateManagedKey` (11), `checkAmbiguity` (10), `applyReverseEvent guardrail integration` (6).
+- Integration tests use `makeContext` with optional `knownKeys` to verify both guardrail-active and guardrail-bypassed modes.
+- 119 total tests pass, 0 fail; typecheck and build clean.
+- Commit: `fix(sync): enforce managed-only and ambiguity skip guardrails` (sha: 514aa79)
+## [2026-02-25] T15 E2E Reverse Sync Validation Matrix
+
+### Architecture: Full E2E Pipeline Wiring
+- E2E test wires the complete pipeline: `createReverseApplyHook(ctx)` → `createBridgeHandler({ applyHook })` → real `http.createServer` on port 0 → in-memory vault (`Map<string, string>`).
+- No Obsidian instance, no real filesystem, no Chrome browser needed.
+- `VaultHarness` factory (`makeVault`) provides `files`, `writes`, and `ctx` from a single `Record<string, string>` initializer.
+
+### Test Isolation Strategy
+- One server per describe block — fresh vault from `INITIAL_FILES`, fresh `processedBatchIds = new Set<string>()` in `before()`.
+- Each scenario uses unique `batchId` to prevent idempotency state leakage.
+- Each scenario operates on a unique file path to prevent cross-test vault mutations.
+
+### Guardrail Wiring Confirmed
+- `knownKeys: KNOWN_KEYS` injected into `ReverseApplyContext` activates both `validateManagedKey` and `checkAmbiguity`.
+- Out-of-bounds index (linkIndex > linkCount) returns `skipped_ambiguous` at HTTP layer.
+- Unrecognized key format returns `skipped_unmanaged` at HTTP layer.
+
+### Loop Suppression Scope
+- Loop suppression is entirely extension-side (`applyEpoch`, `cooldownUntil` in `suppressionState`).
+- The plugin bridge has no suppression — it always processes incoming valid events.
+- S9 test verifies this by sending an update and confirming `applied` is returned.
+- Full suppression coverage lives in `extension/suppression.test.js` (4 tests).
+
+### Evidence Files
+- `.sisyphus/evidence/task-15-e2e-happy.md` — happy path scenario table + per-scenario detail
+- `.sisyphus/evidence/task-15-e2e-error.md` — error/guard scenario table + loop suppression reference
+- Final test count: 128 tests, 128 pass, 0 fail

@@ -1,11 +1,16 @@
 import { createServer, type Server } from "node:http";
+import { readFileSync, writeFileSync } from "node:fs";
+import { resolve, sep } from "node:path";
 import type { App, TAbstractFile } from "obsidian";
-import { Notice, Plugin, PluginSettingTab, Setting, TFolder } from "obsidian";
+import { FileSystemAdapter, Notice, Plugin, PluginSettingTab, Setting, TFolder } from "obsidian";
 import { normalizeBridgePort } from "./extension-bridge-config";
 import { buildExtensionSyncPayload } from "./extension-payload";
 import { buildDesiredTree } from "./model-builder";
-import { DEFAULT_SETTINGS, type Project2ChromeSettings } from "./types";
+import { DEFAULT_SETTINGS, type DesiredFolder, type Project2ChromeSettings } from "./types";
 import { createBridgeHandler, skeletonApplyHook, type ApplyHook } from "./bridge-handler";
+import { createReverseApplyHook } from "./reverse-apply";
+import { createReverseLogger } from "./reverse-logger";
+import type { ManagedKeySet } from "./reverse-guardrails";
 
 export default class Project2ChromePlugin extends Plugin {
   settings: Project2ChromeSettings = DEFAULT_SETTINGS;
@@ -150,11 +155,16 @@ export default class Project2ChromePlugin extends Plugin {
       return;
     }
 
+    const effectiveApplyHook = applyHook === skeletonApplyHook
+      ? this.createLiveApplyHook()
+      : applyHook;
+
     const handler = createBridgeHandler({
       expectedToken: this.settings.extensionBridgeToken,
       getPayload: () => this.latestPayloadJson,
       processedBatchIds: this.processedBatchIds,
-      applyHook
+      applyHook: effectiveApplyHook,
+      logger: createReverseLogger()
     });
 
     this.bridgeServer = createServer(handler);
@@ -163,6 +173,71 @@ export default class Project2ChromePlugin extends Plugin {
       this.bridgeServer?.once("error", reject);
       this.bridgeServer?.listen(this.settings.extensionBridgePort, "127.0.0.1", () => resolve());
     });
+  }
+
+  private createLiveApplyHook(): ApplyHook {
+    return (batch) => {
+      const vaultBasePath = this.getVaultBasePath();
+      if (!vaultBasePath) {
+        return batch.events.map((event) => ({
+          eventId: event.eventId,
+          status: "skipped_ambiguous",
+          reason: "vault_path_unavailable"
+        }));
+      }
+
+      const knownKeys = this.buildManagedKeySetFromLatestPayload();
+      const reverseApplyHook = createReverseApplyHook({
+        vaultBasePath,
+        linkHeading: this.settings.linkHeading,
+        knownKeys,
+        readFile: (absolutePath) => this.readVaultFileSync(vaultBasePath, absolutePath),
+        writeFile: (absolutePath, content) => this.writeVaultFileSync(vaultBasePath, absolutePath, content)
+      });
+
+      return reverseApplyHook(batch);
+    };
+  }
+
+  private getVaultBasePath(): string | null {
+    if (this.app.vault.adapter instanceof FileSystemAdapter) {
+      return this.app.vault.adapter.getBasePath();
+    }
+    return null;
+  }
+
+  private readVaultFileSync(vaultBasePath: string, absolutePath: string): string | null {
+    if (!isPathInsideVault(vaultBasePath, absolutePath)) {
+      return null;
+    }
+
+    try {
+      return readFileSync(absolutePath, "utf-8");
+    } catch {
+      return null;
+    }
+  }
+
+  private writeVaultFileSync(vaultBasePath: string, absolutePath: string, content: string): void {
+    if (!isPathInsideVault(vaultBasePath, absolutePath)) {
+      throw new Error("reverse_write_outside_vault");
+    }
+
+    writeFileSync(absolutePath, content, "utf-8");
+  }
+
+  private buildManagedKeySetFromLatestPayload(): ManagedKeySet | undefined {
+    if (!this.latestPayloadJson) {
+      return undefined;
+    }
+
+    try {
+      const parsed = JSON.parse(this.latestPayloadJson) as { desired?: unknown };
+      const desired = Array.isArray(parsed.desired) ? (parsed.desired as DesiredFolder[]) : [];
+      return buildManagedKeySet(desired);
+    } catch {
+      return undefined;
+    }
   }
 }
 
@@ -321,4 +396,45 @@ function isInsideTarget(filePath: string, target: string): boolean {
     return false;
   }
   return filePath === target || filePath.startsWith(`${target}/`);
+}
+
+function isPathInsideVault(vaultBasePath: string, targetPath: string): boolean {
+  const vaultResolved = resolve(vaultBasePath);
+  const targetResolved = resolve(targetPath);
+  return targetResolved === vaultResolved || targetResolved.startsWith(`${vaultResolved}${sep}`);
+}
+
+function buildManagedKeySet(desired: DesiredFolder[]): ManagedKeySet {
+  const managedNotePaths = new Set<string>();
+  const managedFolderPaths = new Set<string>();
+
+  const visit = (folder: DesiredFolder): void => {
+    if (folder.key.startsWith("note:")) {
+      managedNotePaths.add(folder.path);
+    }
+
+    if (folder.key.startsWith("folder:")) {
+      managedFolderPaths.add(folder.path);
+    }
+
+    for (const link of folder.links) {
+      const separator = link.key.lastIndexOf("|");
+      if (separator > 0) {
+        managedNotePaths.add(link.key.slice(0, separator));
+      }
+    }
+
+    for (const child of folder.children) {
+      visit(child);
+    }
+  };
+
+  for (const folder of desired) {
+    visit(folder);
+  }
+
+  return {
+    managedNotePaths,
+    managedFolderPaths
+  };
 }

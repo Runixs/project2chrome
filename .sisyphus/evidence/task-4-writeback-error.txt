@@ -1,0 +1,77 @@
+TAP version 13
+# Subtest: applyWriteback
+    # Subtest: creates by appending to existing Link section
+    ok 1 - creates by appending to existing Link section # SKIP test name does not match pattern
+      ---
+      duration_ms: 0.483459
+      ...
+    # Subtest: creates a Link section when missing
+    ok 2 - creates a Link section when missing # SKIP test name does not match pattern
+      ---
+      duration_ms: 0.047583
+      ...
+    # Subtest: creates at the resolved link index
+    ok 3 - creates at the resolved link index # SKIP test name does not match pattern
+      ---
+      duration_ms: 0.038917
+      ...
+    # Subtest: updates title only
+    ok 4 - updates title only # SKIP test name does not match pattern
+      ---
+      duration_ms: 0.03675
+      ...
+    # Subtest: updates url only
+    ok 5 - updates url only # SKIP test name does not match pattern
+      ---
+      duration_ms: 0.033084
+      ...
+    # Subtest: updates title and url
+    ok 6 - updates title and url # SKIP test name does not match pattern
+      ---
+      duration_ms: 0.0295
+      ...
+    # Subtest: deletes exactly one line at index
+    ok 7 - deletes exactly one line at index # SKIP test name does not match pattern
+      ---
+      duration_ms: 0.095625
+      ...
+    # Subtest: deletes one of duplicate urls without collapsing others
+    ok 8 - deletes one of duplicate urls without collapsing others # SKIP test name does not match pattern
+      ---
+      duration_ms: 0.034958
+      ...
+    # Subtest: returns heading_not_found when target heading is missing
+    ok 9 - returns heading_not_found when target heading is missing
+      ---
+      duration_ms: 0.556416
+      ...
+    # Subtest: returns index_out_of_range when index is invalid
+    ok 10 - returns index_out_of_range when index is invalid
+      ---
+      duration_ms: 0.244041
+      ...
+    # Subtest: preserves content outside target section byte-for-byte and keeps CRLF
+    ok 11 - preserves content outside target section byte-for-byte and keeps CRLF # SKIP test name does not match pattern
+      ---
+      duration_ms: 0.100375
+      ...
+    # Subtest: supports bare Link heading line
+    ok 12 - supports bare Link heading line # SKIP test name does not match pattern
+      ---
+      duration_ms: 0.039541
+      ...
+    1..12
+ok 1 - applyWriteback
+  ---
+  duration_ms: 2.363916
+  type: 'suite'
+  ...
+1..1
+# tests 12
+# suites 1
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 10
+# todo 0
+# duration_ms 122.610084

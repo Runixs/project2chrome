@@ -47,3 +47,19 @@
 - Added parser tests in src/plugin/reverse-sync-types.test.ts for valid path, required-field rejection, unknown type rejection, and empty-events acceptance.
 - Documented matching schema in extension background.js via JSDoc typedefs to keep JS worker aligned without TypeScript build changes.
 - Removed unused prune function from extension worker to keep changed-file diagnostics clean.
+
+## [2026-02-25] T4 Markdown Writeback Engine
+- Added  pure function in  for create/update/delete scoped to configured Link heading section.
+- Heading detection supports markdown headings () and bare  line, with section bounds ending at next markdown heading.
+- Preserve non-target content and line-ending style ( vs ), return deterministic error reasons (, ).
+- Added  covering create/update/delete, duplicate URL deletion behavior, missing heading/index errors, CRLF preservation, and bare heading handling.
+- Implementation files: src/plugin/writeback-engine.ts and src/plugin/writeback-engine.test.ts.
+
+
+## [2026-02-25] T5 Folder-Rename Writeback
+- Added `src/plugin/folder-rename-writeback.ts` with three pure exports: `resolveFolderRenameTarget`, `applyFolderRenameWriteback`, `processFolderRename`.
+- Key resolution: `note:<path>` → vault-absolute .md path (appends .md if absent); `folder:<path>` → `<path>/<lastSegment>.md` (matches folder-note convention).
+- Frontmatter update: split on `\r?\n`, scan for opening/closing `---`, replace or splice `bookmark_name` line; if no frontmatter, prepend minimal block.
+- Pure functions only — no file I/O, no Obsidian API; caller injects `readFile` callback; T8 orchestrator responsible for actual write-back.
+- 19 new tests, 55 total pass; typecheck and build clean.
+- Avoid `node:path` in plugin source — Obsidian browser context does not guarantee Node.js built-ins; use string operations instead.

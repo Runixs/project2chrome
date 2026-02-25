@@ -1,0 +1,45 @@
+T5 — Folder-Rename Writeback: HAPPY PATH EVIDENCE
+Date: 2026-02-25
+Command: npm run test && npm run typecheck && npm run build
+
+=== npm run test ===
+# tests 55  |  # suites 9  |  # pass 55  |  # fail 0
+
+--- resolveFolderRenameTarget (7/7 pass) ---
+ok 1 - note key with .md extension resolves to vault-absolute path
+ok 2 - note key WITHOUT .md extension appends .md
+ok 3 - folder key resolves to <folder>/<folderName>.md
+ok 4 - folder key with top-level path (no subdirectory)
+ok 5 - vaultBasePath trailing slash is handled gracefully
+ok 6 - returns null for unknown key prefix
+ok 7 - returns null for empty key
+
+--- applyFolderRenameWriteback (7/7 pass) ---
+ok 1 - replaces existing bookmark_name value
+ok 2 - preserves other frontmatter fields when replacing
+ok 3 - adds bookmark_name to existing frontmatter that lacks it
+ok 4 - creates a frontmatter block when none exists
+ok 5 - preserves content after frontmatter unchanged
+ok 6 - handles bookmark_name with special characters in new title
+ok 7 - adds bookmark_name before closing --- (not after body)
+
+--- processFolderRename (5/5 pass) ---
+ok 1 - returns file_not_found when readFile returns null
+ok 2 - returns unresolvable_key for unknown key format
+ok 3 - returns success with targetPath and newContent for note key
+ok 4 - returns success with targetPath and newContent for folder key
+ok 5 - readFile is called with the resolved absolute path
+
+All pre-existing suites still pass:
+  normalizeBridgePort        4/4
+  buildExtensionSyncPayload  2/2
+  extractBookmarkNameFromFrontmatter 5/5
+  parseLinksFromHeading      7/7
+  parseAndValidateReverseBatch 6/6
+  applyWriteback            12/12
+
+=== npm run typecheck ===
+Exit 0 — no type errors
+
+=== npm run build ===
+Exit 0 — build succeeded (dist/plugin/main.js, dist/plugin/manifest.json)

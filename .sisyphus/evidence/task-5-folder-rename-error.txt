@@ -1,0 +1,30 @@
+T5 — Folder-Rename Writeback: ERROR PATH EVIDENCE
+Date: 2026-02-25
+
+All error-path branches exercised and passing in processFolderRename suite:
+
+--- unresolvable_key ---
+Test: "returns unresolvable_key for unknown key format"
+Input: managedKey = "unknown:path/to/thing"
+Expected: { success: false, reason: "unresolvable_key" }
+Result: ok 2 - PASS
+
+Trigger: resolveFolderRenameTarget returns null when prefix is not "note:" or "folder:".
+resolveFolderRenameTarget also returns null for empty key (tested in that suite).
+
+--- file_not_found ---
+Test: "returns file_not_found when readFile returns null"
+Input: managedKey = "folder:1_Projects/APS-45429", readFile = () => null
+Expected: { success: false, reason: "file_not_found" }
+Result: ok 1 - PASS
+
+Trigger: readFile callback returns null (file missing / unreadable on caller side).
+The pure processFolderRename function never touches the filesystem itself.
+
+--- skip+log contract ---
+In both error cases processFolderRename returns a typed FolderRenameResult with
+success=false and a machine-readable reason string.  The orchestrator (T8) is
+responsible for logging and skipping write-back when success is false.
+
+--- full suite summary ---
+# tests 55  |  # pass 55  |  # fail 0

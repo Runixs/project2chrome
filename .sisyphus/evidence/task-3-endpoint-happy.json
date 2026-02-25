@@ -1,0 +1,68 @@
+{
+  "task": "T3",
+  "scenario": "POST /reverse-sync happy path",
+  "date": "2026-02-25",
+  "verified_by": "reverse-endpoint.test.ts (node:test)",
+  "test_results": {
+    "total_tests": 66,
+    "pass": 66,
+    "fail": 0,
+    "suites": 10
+  },
+  "endpoint_happy_path": {
+    "request": {
+      "method": "POST",
+      "path": "/reverse-sync",
+      "headers": {
+        "Content-Type": "application/json",
+        "X-Project2Chrome-Token": "<valid-token>"
+      },
+      "body": {
+        "batchId": "batch-happy",
+        "sentAt": "2026-02-25T10:00:00.000Z",
+        "events": [
+          {
+            "batchId": "batch-happy",
+            "eventId": "evt-001",
+            "type": "bookmark_created",
+            "bookmarkId": "bm-abc",
+            "managedKey": "note:Projects/test.md",
+            "occurredAt": "2026-02-25T10:00:00.000Z",
+            "schemaVersion": "1"
+          }
+        ]
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "batchId": "batch-happy",
+        "results": [
+          {
+            "eventId": "evt-001",
+            "status": "applied"
+          }
+        ]
+      }
+    }
+  },
+  "idempotency_second_call": {
+    "description": "Same batchId sent a second time returns 'duplicate' for all events",
+    "response": {
+      "status": 200,
+      "body": {
+        "batchId": "batch-idem-check",
+        "results": [
+          {
+            "eventId": "evt-idem-001",
+            "status": "duplicate"
+          }
+        ]
+      }
+    }
+  },
+  "existing_endpoints": {
+    "GET /health": { "status": 200, "body": { "ok": true } },
+    "GET /payload (valid token)": { "status": 200 }
+  }
+}

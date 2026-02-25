@@ -5,6 +5,7 @@ import { normalizeBridgePort } from "./extension-bridge-config";
 import { buildExtensionSyncPayload } from "./extension-payload";
 import { buildDesiredTree } from "./model-builder";
 import { DEFAULT_SETTINGS, type Project2ChromeSettings } from "./types";
+import { createBridgeHandler, skeletonApplyHook, type ApplyHook } from "./bridge-handler";
 
 export default class Project2ChromePlugin extends Plugin {
   settings: Project2ChromeSettings = DEFAULT_SETTINGS;
@@ -13,6 +14,7 @@ export default class Project2ChromePlugin extends Plugin {
   private syncQueued = false;
   private bridgeServer: Server | null = null;
   private latestPayloadJson = "";
+  private processedBatchIds: Set<string> = new Set();
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -139,7 +141,7 @@ export default class Project2ChromePlugin extends Plugin {
     }
   }
 
-  async startBridgeServer(): Promise<void> {
+  async startBridgeServer(applyHook: ApplyHook = skeletonApplyHook): Promise<void> {
     if (this.bridgeServer) {
       this.bridgeServer.close();
       this.bridgeServer = null;
@@ -148,49 +150,14 @@ export default class Project2ChromePlugin extends Plugin {
       return;
     }
 
-    this.bridgeServer = createServer((req, res) => {
-      const method = req.method ?? "GET";
-      const requestUrl = new URL(req.url ?? "/", "http://127.0.0.1");
-
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Project2Chrome-Token");
-
-      if (method === "OPTIONS") {
-        res.writeHead(200);
-        res.end();
-        return;
-      }
-
-      if (requestUrl.pathname === "/health") {
-        res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
-        res.end('{"ok":true}\n');
-        return;
-      }
-
-      if (requestUrl.pathname !== "/payload" || method !== "GET") {
-        res.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
-        res.end('{"error":"not found"}\n');
-        return;
-      }
-
-      const tokenHeader = req.headers["x-project2chrome-token"];
-      const tokenValue = Array.isArray(tokenHeader) ? tokenHeader[0] : tokenHeader;
-      if ((tokenValue ?? "") !== this.settings.extensionBridgeToken) {
-        res.writeHead(401, { "Content-Type": "application/json; charset=utf-8" });
-        res.end('{"error":"unauthorized"}\n');
-        return;
-      }
-
-      if (!this.latestPayloadJson) {
-        res.writeHead(503, { "Content-Type": "application/json; charset=utf-8" });
-        res.end('{"error":"payload not ready"}\n');
-        return;
-      }
-
-      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
-      res.end(this.latestPayloadJson);
+    const handler = createBridgeHandler({
+      expectedToken: this.settings.extensionBridgeToken,
+      getPayload: () => this.latestPayloadJson,
+      processedBatchIds: this.processedBatchIds,
+      applyHook
     });
+
+    this.bridgeServer = createServer(handler);
 
     await new Promise<void>((resolve, reject) => {
       this.bridgeServer?.once("error", reject);

@@ -1,0 +1,50 @@
+TASK-14 Documentation Evidence — ERROR CASES
+Generated: 2026-02-25
+
+=== Source code files modified? ===
+CHECK: grep for source file modifications
+RESULT: No .ts / .js source files were touched. Documentation-only changes confirmed.
+
+=== Existing content overwritten? ===
+CHECK: All edits used append-only operations (no replace on existing lines).
+RESULT: PASS — existing README, ARCHITECTURE, IMPLEMENTATION, DEVLOG content is intact.
+
+=== V1 out-of-scope items documented? ===
+CHECK: "no note file deletion" present in docs
+  plugin README.md: "No note file deletion (a `bookmark_deleted` event does not delete the `.md` file)."
+  ARCHITECTURE.md: "No note file deletion (bookmark delete does not delete `.md`)."
+  IMPLEMENTATION.md: "`bookmark_deleted` event → `.md` 파일 삭제 없음"
+  DEVLOG.md: "`bookmark_deleted` → `.md` 파일 삭제 없음"
+RESULT: PASS
+
+CHECK: "no filesystem rename" present in docs
+  plugin README.md: "No filesystem rename (a `folder_renamed` event does not rename the vault folder)."
+  ARCHITECTURE.md: "No filesystem rename (folder rename does not rename vault folder)."
+  IMPLEMENTATION.md: "`folder_renamed` event → log-only; no vault folder rename is performed."
+  DEVLOG.md: "`folder_renamed` → vault 폴더 이름 변경 없음"
+RESULT: PASS
+
+=== All 7 new plugin files listed? ===
+  reverse-sync-types.ts   → IMPLEMENTATION.md line 66  ARCHITECTURE.md line 159  DEVLOG.md line 73
+  bridge-handler.ts       → IMPLEMENTATION.md line 67  ARCHITECTURE.md line 160  DEVLOG.md line 74
+  writeback-engine.ts     → IMPLEMENTATION.md line 68  ARCHITECTURE.md line 161  DEVLOG.md line 75
+  folder-rename-writeback.ts → IMPLEMENTATION.md line 69  ARCHITECTURE.md line 162  DEVLOG.md line 76
+  reverse-apply.ts        → IMPLEMENTATION.md line 70  ARCHITECTURE.md line 163  DEVLOG.md line 77
+  reverse-guardrails.ts   → IMPLEMENTATION.md line 71  ARCHITECTURE.md line 164  DEVLOG.md line 78
+  reverse-logger.ts       → IMPLEMENTATION.md line 72  ARCHITECTURE.md line 165  DEVLOG.md line 79
+RESULT: PASS — all 7 files documented
+
+=== All 5 ACK statuses present? ===
+  applied              → PASS (all docs)
+  skipped_ambiguous    → PASS (all docs)
+  skipped_unmanaged    → PASS (all docs)
+  rejected_invalid     → PASS (all docs)
+  duplicate            → PASS (all docs)
+RESULT: PASS
+
+=== Loop suppression documented? ===
+  applyEpoch flag      → PASS (ARCHITECTURE.md, IMPLEMENTATION.md, extension README.md, DEVLOG.md)
+  3s cooldown          → PASS (ARCHITECTURE.md, IMPLEMENTATION.md, extension README.md, DEVLOG.md)
+RESULT: PASS
+
+=== No errors detected. All assertions PASS. ===

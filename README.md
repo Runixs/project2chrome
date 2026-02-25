@@ -115,3 +115,56 @@ npm run typecheck
 - Health: `GET http://127.0.0.1:<port>/health`
 - Payload: `GET http://127.0.0.1:<port>/payload`
 - Required header: `X-Project2Chrome-Token: <token>`
+
+## Reverse Sync
+
+Reverse sync enables Chrome bookmark changes to propagate back into Obsidian notes. When the extension detects a bookmark event on an extension-managed node, it posts the event to the plugin bridge so Obsidian can update the corresponding note.
+
+### What It Does
+
+- Captures Chrome bookmark events (`bookmark_created`, `bookmark_updated`, `bookmark_deleted`, `folder_renamed`) for managed nodes.
+- Posts the event payload to `POST /reverse-sync` on the same localhost bridge server.
+- Plugin receives the event and writes back to the matching Obsidian note or folder.
+
+### Endpoint
+
+```
+POST http://127.0.0.1:<port>/reverse-sync
+X-Project2Chrome-Token: <token>
+```
+
+Same port and token as the existing `/payload` endpoint.
+
+### Managed Scope Only
+
+Only extension-managed bookmarks trigger reverse sync. Non-managed nodes (manually created by the user outside the gateway root) are silently ignored with status `skipped_unmanaged`.
+
+Managed node keys take the form:
+
+- `folder:<path>`
+- `note:<path>`
+- `<sourcePath>|<linkIndex>`
+
+### Conflict Policy: Chrome Wins
+
+For any conflict between Chrome state and Obsidian note state, Chrome is the source of truth. The plugin writes the Chrome-side value into the note without prompting.
+
+### Ambiguity Policy: Skip + Log
+
+If the plugin cannot unambiguously resolve which note or link bullet to update, it **skips the write** and records the event in the reverse sync log. It never makes a best-guess write.
+
+### ACK Statuses
+
+| Status | Meaning |
+|---|---|
+| `applied` | Write successfully applied to note |
+| `skipped_ambiguous` | Could not resolve target unambiguously; write skipped |
+| `skipped_unmanaged` | Node is not extension-managed; ignored |
+| `rejected_invalid` | Payload validation failed |
+| `duplicate` | Identical event already processed |
+
+### V1 Out-of-Scope
+
+- No note file deletion (a `bookmark_deleted` event does not delete the `.md` file).
+- No filesystem rename (a `folder_renamed` event does not rename the vault folder).
+- Reverse sync applies to managed nodes only; the managed scope boundary is enforced by the guardrails layer.

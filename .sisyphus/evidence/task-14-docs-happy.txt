@@ -1,0 +1,46 @@
+TASK-14 Documentation Evidence — PASS
+Generated: 2026-02-25
+
+=== Key term grep: "reverse-sync" ===
+project2chrome/README.md:126: POST /reverse-sync on the same localhost bridge server.
+project2chrome/README.md:132: POST http://127.0.0.1:<port>/reverse-sync
+chrome/local-event-gateway/README.md:68: Failed POST requests to `/reverse-sync`
+chrome/local-event-gateway/README.md:76: reverse-sync write from triggering another outbound payload fetch
+chrome/local-event-gateway/README.md:79: dropped by the reverse-sync listener
+chrome/local-event-gateway/README.md:85: POST http://127.0.0.1:<port>/reverse-sync
+ARCHITECTURE.md:117: extension captures event → `POST /reverse-sync` → plugin writeback engine
+ARCHITECTURE.md:125: Batch is posted to `POST http://127.0.0.1:<port>/reverse-sync`
+ARCHITECTURE.md:160: bridge-handler.ts | HTTP handler for `POST /reverse-sync`
+IMPLEMENTATION.md:67: Registers `POST /reverse-sync` on the bridge server
+IMPLEMENTATION.md:77: POST http://127.0.0.1:<port>/reverse-sync
+IMPLEMENTATION.md:121: Extension listener fires → batch coalesced → `POST /reverse-sync`
+DEVLOG.md:63: POST /reverse-sync (동일 포트, 동일 토큰 헤더)
+
+=== Key term grep: "Chrome wins" ===
+ARCHITECTURE.md:135: **Chrome wins.** For any managed node where Chrome state and Obsidian note state diverge...
+DEVLOG.md:64: 충돌 정책: **Chrome wins** — managed 노트에서 Chrome 값이 우선
+
+=== Key term grep: "skipped_ambiguous" ===
+project2chrome/README.md:161: `skipped_ambiguous` | Could not resolve target unambiguously; write skipped
+chrome/local-event-gateway/README.md:109: `skipped_ambiguous` | Could not resolve target; write skipped
+ARCHITECTURE.md:128: ambiguous targets → `skipped_ambiguous`
+ARCHITECTURE.md:131: ACK response is returned: `applied | skipped_ambiguous | ...`
+IMPLEMENTATION.md:98: `skipped_ambiguous` | Multiple candidates or unresolvable key; write skipped
+IMPLEMENTATION.md:108: Ambiguous resolution (multiple note candidates match the same key) → `skipped_ambiguous`
+DEVLOG.md:71: ACK 상태: `applied | skipped_ambiguous | ...`
+
+=== Files modified ===
+[MODIFIED]  /Users/runixs/working_local/obsidian/project2chrome/README.md
+[MODIFIED]  /Users/runixs/working_local/chrome/local-event-gateway/README.md
+[MODIFIED]  .../3_Resources/Plugin/Obsidian/project2chrome/ARCHITECTURE.md
+[MODIFIED]  .../3_Resources/Plugin/Obsidian/project2chrome/IMPLEMENTATION.md
+[MODIFIED]  .../3_Resources/Plugin/Obsidian/project2chrome/DEVLOG.md
+
+=== Sections added ===
+plugin README.md         → ## Reverse Sync
+extension README.md      → ## Reverse Sync (Bookmark → Obsidian)
+ARCHITECTURE.md          → ## Bidirectional Sync Architecture
+IMPLEMENTATION.md        → ## Reverse Sync Implementation
+DEVLOG.md                → ## 2026-02-25 (reverse sync)
+
+All assertions PASS. Documentation is consistent with task spec.

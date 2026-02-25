@@ -1,0 +1,127 @@
+{
+  "task": "T12 - Managed-Only and Ambiguity Skip Guardrails",
+  "description": "Guardrail rejection ACK samples — these are the deterministic skip responses returned when guardrails block mutation.",
+  "timestamp": "2026-02-25T10:00:00.000Z",
+  "rejectionSamples": [
+    {
+      "scenario": "note key not in knownKeys.managedNotePaths",
+      "input": {
+        "event": {
+          "eventId": "evt-unmanaged-note",
+          "type": "bookmark_updated",
+          "managedKey": "note:1_Projects/Secret.md",
+          "title": "Attempt to mutate unmanaged note"
+        },
+        "ctx": {
+          "knownKeys": {
+            "managedNotePaths": ["1_Projects/Doc.md"],
+            "managedFolderPaths": []
+          }
+        }
+      },
+      "output": {
+        "eventId": "evt-unmanaged-note",
+        "status": "skipped_unmanaged",
+        "reason": "skipped_unmanaged"
+      },
+      "filesWritten": 0
+    },
+    {
+      "scenario": "link key source path not in knownKeys.managedNotePaths",
+      "input": {
+        "event": {
+          "eventId": "evt-unmanaged-link",
+          "type": "bookmark_deleted",
+          "managedKey": "1_Projects/UnknownNote.md|0"
+        },
+        "ctx": {
+          "knownKeys": {
+            "managedNotePaths": ["1_Projects/Doc.md"],
+            "managedFolderPaths": []
+          }
+        }
+      },
+      "output": {
+        "eventId": "evt-unmanaged-link",
+        "status": "skipped_unmanaged",
+        "reason": "skipped_unmanaged"
+      },
+      "filesWritten": 0
+    },
+    {
+      "scenario": "folder key not in knownKeys.managedFolderPaths",
+      "input": {
+        "event": {
+          "eventId": "evt-unmanaged-folder",
+          "type": "folder_renamed",
+          "managedKey": "folder:1_Projects/UnknownFolder",
+          "title": "New Name"
+        },
+        "ctx": {
+          "knownKeys": {
+            "managedNotePaths": [],
+            "managedFolderPaths": ["1_Projects/KnownFolder"]
+          }
+        }
+      },
+      "output": {
+        "eventId": "evt-unmanaged-folder",
+        "status": "skipped_unmanaged",
+        "reason": "skipped_unmanaged"
+      },
+      "filesWritten": 0
+    },
+    {
+      "scenario": "link key index out of bounds (index 99 when only 2 links exist)",
+      "input": {
+        "event": {
+          "eventId": "evt-oob-link",
+          "type": "bookmark_updated",
+          "managedKey": "1_Projects/Doc.md|99",
+          "title": "Ghost Update"
+        },
+        "ctx": {
+          "knownKeys": {
+            "managedNotePaths": ["1_Projects/Doc.md"],
+            "managedFolderPaths": []
+          },
+          "fileContent": "### Link\n- [One](https://one.test)\n- [Two](https://two.test)"
+        }
+      },
+      "output": {
+        "eventId": "evt-oob-link",
+        "status": "skipped_ambiguous",
+        "reason": "skipped_ambiguous"
+      },
+      "filesWritten": 0
+    },
+    {
+      "scenario": "unrecognized key format (no prefix, no pipe separator)",
+      "input": {
+        "event": {
+          "eventId": "evt-bad-format",
+          "type": "bookmark_updated",
+          "managedKey": "invalid-format-key"
+        },
+        "ctx": {
+          "knownKeys": {
+            "managedNotePaths": ["1_Projects/Doc.md"],
+            "managedFolderPaths": []
+          }
+        }
+      },
+      "output": {
+        "eventId": "evt-bad-format",
+        "status": "skipped_unmanaged",
+        "reason": "skipped_unmanaged"
+      },
+      "filesWritten": 0
+    }
+  ],
+  "guardrailContract": {
+    "validateManagedKey_returns": "{ eligible: false, reason: 'skipped_unmanaged' } for unmanaged keys",
+    "checkAmbiguity_returns": "{ eligible: false, reason: 'skipped_ambiguous' } for out-of-bounds indices",
+    "noWriteOccurs": "Guaranteed — all writes are gated after guardrail eligibility checks pass",
+    "deterministicReason": "reason field is always present and deterministic for rejected events"
+  }
+}

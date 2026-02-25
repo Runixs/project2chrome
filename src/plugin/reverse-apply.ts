@@ -2,12 +2,14 @@ import type { ApplyHook } from "./bridge-handler";
 import { processFolderRename } from "./folder-rename-writeback";
 import type { EventAck, ReverseEvent } from "./reverse-sync-types";
 import { applyWriteback, type WritebackOperation } from "./writeback-engine";
+import { checkAmbiguity, validateManagedKey, type ManagedKeySet } from "./reverse-guardrails";
 
 export type ReverseApplyContext = {
   vaultBasePath: string;
   linkHeading: string;
   readFile: (path: string) => string | null;
   writeFile: (path: string, content: string) => void;
+  knownKeys?: ManagedKeySet;
 };
 
 type ManagedKeyResolution =
@@ -18,6 +20,17 @@ export function applyReverseEvent(event: ReverseEvent, ctx: ReverseApplyContext)
   const managedKey = event.managedKey?.trim();
   if (!managedKey) {
     return { eventId: event.eventId, status: "skipped_unmanaged", reason: "unrecognized_key" };
+  }
+
+  if (ctx.knownKeys) {
+    const guardrailResult = validateManagedKey(managedKey, ctx.knownKeys);
+    if (!guardrailResult.eligible) {
+      return {
+        eventId: event.eventId,
+        status: "skipped_unmanaged",
+        reason: guardrailResult.reason ?? "skipped_unmanaged"
+      };
+    }
   }
 
   const key = resolveManagedKey(managedKey);
@@ -60,6 +73,17 @@ export function applyReverseEvent(event: ReverseEvent, ctx: ReverseApplyContext)
       status: "skipped_ambiguous",
       reason: "file_not_found"
     };
+  }
+
+  if (ctx.knownKeys) {
+    const ambiguityResult = checkAmbiguity(managedKey, existingContent, ctx.linkHeading);
+    if (!ambiguityResult.eligible) {
+      return {
+        eventId: event.eventId,
+        status: "skipped_ambiguous",
+        reason: ambiguityResult.reason ?? "skipped_ambiguous"
+      };
+    }
   }
 
   const writebackOperation = toWritebackOperation(event, key.sourcePath, key.linkIndex, ctx.linkHeading);

@@ -1,0 +1,72 @@
+{
+  "task": "T12 - Managed-Only and Ambiguity Skip Guardrails",
+  "result": "pass",
+  "timestamp": "2026-02-25T10:00:00.000Z",
+  "testSuites": {
+    "validateManagedKey": {
+      "pass": 11,
+      "fail": 0,
+      "cases": [
+        "note:<path> in managed set → eligible",
+        "note:<path> NOT in managed set → skipped_unmanaged",
+        "folder:<path> in managed set → eligible",
+        "folder:<path> NOT in managed set → skipped_unmanaged",
+        "<sourcePath>|<linkIndex> sourcePath in managedNotePaths → eligible",
+        "<sourcePath>|<linkIndex> sourcePath NOT in managedNotePaths → skipped_unmanaged",
+        "unrecognized key format (no prefix, no pipe) → skipped_unmanaged",
+        "note: with empty path → skipped_unmanaged",
+        "folder: with empty path → skipped_unmanaged",
+        "link key with non-numeric index → skipped_unmanaged",
+        "link key with trailing pipe only → skipped_unmanaged"
+      ]
+    },
+    "checkAmbiguity": {
+      "pass": 10,
+      "fail": 0,
+      "cases": [
+        "link key with index within bounds → eligible",
+        "link key with index at boundary (== count, valid append) → eligible",
+        "link key with out-of-bounds index → skipped_ambiguous",
+        "link key with index 1 on zero-link section → skipped_ambiguous",
+        "link key with index 0 on zero-link section → eligible (create at start)",
+        "link key with no heading in content and index 0 → eligible (create with missing heading)",
+        "link key with no heading in content and index 1 → skipped_ambiguous",
+        "note:<path> key → always eligible regardless of content",
+        "folder:<path> key → always eligible regardless of content",
+        "bare heading line (non-prefixed) is detected correctly"
+      ]
+    },
+    "applyReverseEventGuardrailIntegration": {
+      "pass": 6,
+      "fail": 0,
+      "cases": [
+        "unmanaged note key returns skipped_unmanaged ACK with zero file mutations",
+        "managed note key proceeds normally to applied",
+        "unmanaged link key returns skipped_unmanaged ACK with zero file mutations",
+        "out-of-bounds link index returns skipped_ambiguous ACK with zero file mutations",
+        "no knownKeys provided → guardrail bypassed, existing behavior preserved",
+        "unmanaged folder key returns skipped_unmanaged ACK with zero file mutations"
+      ]
+    }
+  },
+  "totals": {
+    "suites": 3,
+    "tests": 27,
+    "pass": 27,
+    "fail": 0
+  },
+  "overallTests": {
+    "suites": 16,
+    "tests": 119,
+    "pass": 119,
+    "fail": 0
+  },
+  "typecheck": "pass",
+  "build": "pass",
+  "example_happy_ack": {
+    "eventId": "evt-1",
+    "status": "applied",
+    "resolvedPath": "/vault/1_Projects/Doc.md",
+    "resolvedKey": "note:1_Projects/Doc.md"
+  }
+}

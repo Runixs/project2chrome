@@ -1,5 +1,7 @@
 import type { ApplyHook } from "./bridge-handler";
+import { extractBookmarkNameFromFrontmatter } from "./frontmatter";
 import { processFolderRename } from "./folder-rename-writeback";
+import { parseLinksFromHeading } from "./link-parser";
 import type { EventAck, ReverseEvent } from "./reverse-sync-types";
 import { applyWriteback, type WritebackOperation } from "./writeback-engine";
 import { checkAmbiguity, validateManagedKey, type ManagedKeySet } from "./reverse-guardrails";
@@ -14,7 +16,12 @@ export type ReverseApplyContext = {
 
 type ManagedKeyResolution =
   | { kind: "rename"; managedKey: string }
+  | { kind: "parent"; managedKey: string; parentKind: "note" | "folder"; parentPath: string }
   | { kind: "link"; managedKey: string; sourcePath: string; linkIndex: number };
+
+type ParentCreateTargetResult =
+  | { ok: true; sourcePath: string; existingContent: string; linkIndex: number; resolvedKey: string }
+  | { ok: false; reason: string };
 
 export function applyReverseEvent(event: ReverseEvent, ctx: ReverseApplyContext): EventAck {
   const managedKey = event.managedKey?.trim();
@@ -33,7 +40,7 @@ export function applyReverseEvent(event: ReverseEvent, ctx: ReverseApplyContext)
     }
   }
 
-  const key = resolveManagedKey(managedKey);
+  const key = resolveManagedKey(managedKey, event.type);
   if (!key) {
     return { eventId: event.eventId, status: "skipped_unmanaged", reason: "unrecognized_key" };
   }
@@ -62,6 +69,51 @@ export function applyReverseEvent(event: ReverseEvent, ctx: ReverseApplyContext)
       status: "applied",
       resolvedPath: rename.targetPath,
       resolvedKey: key.managedKey
+    };
+  }
+
+  if (key.kind === "parent") {
+    if (event.type !== "bookmark_created") {
+      return {
+        eventId: event.eventId,
+        status: "skipped_ambiguous",
+        reason: "parent_key_requires_create"
+      };
+    }
+
+    const targetResult = resolveParentCreateTarget(key, ctx);
+    if (!targetResult.ok) {
+      return {
+        eventId: event.eventId,
+        status: "skipped_ambiguous",
+        reason: targetResult.reason
+      };
+    }
+
+    const writeResult = applyWriteback(targetResult.existingContent, {
+      type: "create",
+      notePath: targetResult.sourcePath,
+      linkIndex: targetResult.linkIndex,
+      title: event.title,
+      url: event.url,
+      linkHeading: ctx.linkHeading
+    });
+
+    if (!writeResult.success || writeResult.newContent === undefined) {
+      return {
+        eventId: event.eventId,
+        status: "skipped_ambiguous",
+        reason: writeResult.reason ?? "writeback_failed"
+      };
+    }
+
+    const parentTargetPath = joinVaultPath(ctx.vaultBasePath, targetResult.sourcePath);
+    ctx.writeFile(parentTargetPath, writeResult.newContent);
+    return {
+      eventId: event.eventId,
+      status: "applied",
+      resolvedPath: parentTargetPath,
+      resolvedKey: targetResult.resolvedKey
     };
   }
 
@@ -117,9 +169,27 @@ export function createReverseApplyHook(ctx: ReverseApplyContext): ApplyHook {
   return (batch) => batch.events.map((event) => applyReverseEvent(event, ctx));
 }
 
-function resolveManagedKey(managedKey: string): ManagedKeyResolution | null {
-  if (managedKey.startsWith("note:") || managedKey.startsWith("folder:")) {
-    return { kind: "rename", managedKey };
+function resolveManagedKey(managedKey: string, eventType: ReverseEvent["type"]): ManagedKeyResolution | null {
+  if (managedKey.startsWith("note:")) {
+    const parentPath = managedKey.slice("note:".length).trim();
+    if (!parentPath) {
+      return null;
+    }
+    if (eventType === "folder_renamed") {
+      return { kind: "rename", managedKey };
+    }
+    return { kind: "parent", managedKey, parentKind: "note", parentPath };
+  }
+
+  if (managedKey.startsWith("folder:")) {
+    const parentPath = managedKey.slice("folder:".length).trim();
+    if (!parentPath) {
+      return null;
+    }
+    if (eventType === "folder_renamed") {
+      return { kind: "rename", managedKey };
+    }
+    return { kind: "parent", managedKey, parentKind: "folder", parentPath };
   }
 
   const separator = managedKey.lastIndexOf("|");
@@ -139,6 +209,164 @@ function resolveManagedKey(managedKey: string): ManagedKeyResolution | null {
   }
 
   return { kind: "link", managedKey, sourcePath, linkIndex };
+}
+
+function resolveParentCreateTarget(
+  key: Extract<ManagedKeyResolution, { kind: "parent" }>,
+  ctx: ReverseApplyContext
+): ParentCreateTargetResult {
+  if (key.parentKind === "note") {
+    return resolveCreateTargetForSourcePath(key.parentPath, ctx);
+  }
+
+  const folderPath = trimRelativePath(key.parentPath);
+  if (!folderPath) {
+    return { ok: false, reason: "folder_parent_missing" };
+  }
+
+  const directCandidates = collectFolderDirectCandidates(folderPath);
+  const directResolved = resolveSingleExistingNotePath(directCandidates, ctx);
+  if (directResolved.length === 1) {
+    const onlyDirect = directResolved[0];
+    if (onlyDirect) {
+      return resolveCreateTargetForSourcePath(onlyDirect, ctx);
+    }
+  }
+  if (directResolved.length > 1) {
+    return { ok: false, reason: "folder_parent_ambiguous" };
+  }
+
+  const fallbackCandidates = collectBookmarkNameMatches(folderPath, ctx);
+  if (fallbackCandidates.length === 1) {
+    const onlyFallback = fallbackCandidates[0];
+    if (onlyFallback) {
+      return resolveCreateTargetForSourcePath(onlyFallback, ctx);
+    }
+  }
+  if (fallbackCandidates.length > 1) {
+    return { ok: false, reason: "folder_parent_ambiguous" };
+  }
+
+  return { ok: false, reason: "folder_parent_note_not_found" };
+}
+
+function resolveCreateTargetForSourcePath(sourcePath: string, ctx: ReverseApplyContext): ParentCreateTargetResult {
+  const normalizedSourcePath = trimRelativePath(sourcePath);
+  if (!normalizedSourcePath) {
+    return { ok: false, reason: "source_path_invalid" };
+  }
+
+  const targetPath = joinVaultPath(ctx.vaultBasePath, normalizedSourcePath);
+  const existingContent = ctx.readFile(targetPath);
+  if (existingContent === null) {
+    return { ok: false, reason: "file_not_found" };
+  }
+
+  const linkIndex = parseLinksFromHeading(existingContent, ctx.linkHeading, normalizedSourcePath).length;
+  return {
+    ok: true,
+    sourcePath: normalizedSourcePath,
+    existingContent,
+    linkIndex,
+    resolvedKey: `${normalizedSourcePath}|${String(linkIndex)}`
+  };
+}
+
+function collectFolderDirectCandidates(folderPath: string): string[] {
+  const normalizedFolderPath = trimRelativePath(folderPath);
+  if (!normalizedFolderPath) {
+    return [];
+  }
+
+  const folderName = getLastPathSegment(normalizedFolderPath);
+  const seen = new Set<string>();
+  const out: string[] = [];
+
+  const push = (candidate: string): void => {
+    const normalizedCandidate = trimRelativePath(candidate);
+    if (!normalizedCandidate || seen.has(normalizedCandidate)) {
+      return;
+    }
+    seen.add(normalizedCandidate);
+    out.push(normalizedCandidate);
+  };
+
+  push(`${normalizedFolderPath}.md`);
+  if (folderName) {
+    push(`${normalizedFolderPath}/${folderName}.md`);
+  }
+
+  return out;
+}
+
+function resolveSingleExistingNotePath(candidates: string[], ctx: ReverseApplyContext): string[] {
+  const existing: string[] = [];
+  for (const sourcePath of candidates) {
+    const absolute = joinVaultPath(ctx.vaultBasePath, sourcePath);
+    if (ctx.readFile(absolute) !== null) {
+      existing.push(sourcePath);
+    }
+  }
+  return existing;
+}
+
+function collectBookmarkNameMatches(folderPath: string, ctx: ReverseApplyContext): string[] {
+  if (!ctx.knownKeys) {
+    return [];
+  }
+
+  const folderName = getLastPathSegment(folderPath).toLowerCase();
+  if (!folderName) {
+    return [];
+  }
+
+  const matches: string[] = [];
+  for (const notePath of ctx.knownKeys.managedNotePaths) {
+    const normalizedNotePath = trimRelativePath(notePath);
+    if (!normalizedNotePath) {
+      continue;
+    }
+
+    const absolute = joinVaultPath(ctx.vaultBasePath, normalizedNotePath);
+    const content = ctx.readFile(absolute);
+    if (content === null) {
+      continue;
+    }
+
+    const bookmarkName = extractBookmarkNameFromFrontmatter(content);
+    if (bookmarkName && bookmarkName.trim().toLowerCase() === folderName) {
+      matches.push(normalizedNotePath);
+    }
+  }
+
+  return uniqueStrings(matches);
+}
+
+function trimRelativePath(value: string): string {
+  return value.trim().replace(/^\/+/, "").replace(/\/+$/, "");
+}
+
+function getLastPathSegment(value: string): string {
+  const normalized = trimRelativePath(value);
+  if (!normalized) {
+    return "";
+  }
+  const parts = normalized.split("/");
+  const segment = parts[parts.length - 1];
+  return segment ? segment.trim() : "";
+}
+
+function uniqueStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    if (!value || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    out.push(value);
+  }
+  return out;
 }
 
 function toWritebackOperation(

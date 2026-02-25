@@ -47,7 +47,7 @@ function makeContext(initialFiles: Record<string, string>): {
 }
 
 describe("applyReverseEvent", () => {
-  it("applies note:<path> bookmark_updated by writing bookmark_name frontmatter", () => {
+  it("applies note:<path> folder_renamed by writing bookmark_name frontmatter", () => {
     const targetPath = "/vault/1_Projects/Doc.md";
     const { ctx, writes } = makeContext({
       [targetPath]: ["---", "bookmark_name: Old", "---", "# Body"].join("\n")
@@ -55,7 +55,7 @@ describe("applyReverseEvent", () => {
 
     const ack = applyReverseEvent(
       makeEvent({
-        type: "bookmark_updated",
+        type: "folder_renamed",
         managedKey: "note:1_Projects/Doc.md",
         title: "Renamed Doc"
       }),
@@ -67,6 +67,110 @@ describe("applyReverseEvent", () => {
     assert.equal(ack.resolvedKey, "note:1_Projects/Doc.md");
     assert.equal(writes.length, 1);
     assert.ok(writes[0]?.content.includes("bookmark_name: Renamed Doc"));
+  });
+
+  it("applies folder-parent bookmark_created by resolving <folder>.md and appending link", () => {
+    const targetPath = "/vault/1_Projects/EASE.md";
+    const { ctx, writes } = makeContext({
+      [targetPath]: ["# EASE", "### Link", "- [One](https://one.test)"].join("\n")
+    });
+    ctx.knownKeys = {
+      managedFolderPaths: new Set(["1_Projects/EASE"]),
+      managedNotePaths: new Set(["1_Projects/EASE.md"])
+    };
+
+    const ack = applyReverseEvent(
+      makeEvent({
+        type: "bookmark_created",
+        managedKey: "folder:1_Projects/EASE",
+        title: "test",
+        url: "chrome://extensions"
+      }),
+      ctx
+    );
+
+    assert.equal(ack.status, "applied");
+    assert.equal(ack.resolvedPath, targetPath);
+    assert.equal(ack.resolvedKey, "1_Projects/EASE.md|1");
+    assert.equal(writes.length, 1);
+    assert.ok(writes[0]?.content.includes("- [test](chrome://extensions)"));
+  });
+
+  it("applies folder-parent bookmark_created by fallback bookmark_name match", () => {
+    const targetPath = "/vault/1_Projects/CustomName.md";
+    const { ctx, writes } = makeContext({
+      [targetPath]: [
+        "---",
+        "bookmark_name: EASE",
+        "---",
+        "# CustomName",
+        "### Link"
+      ].join("\n")
+    });
+    ctx.knownKeys = {
+      managedFolderPaths: new Set(["1_Projects/EASE"]),
+      managedNotePaths: new Set(["1_Projects/CustomName.md"])
+    };
+
+    const ack = applyReverseEvent(
+      makeEvent({
+        type: "bookmark_created",
+        managedKey: "folder:1_Projects/EASE",
+        title: "test",
+        url: "chrome://extensions"
+      }),
+      ctx
+    );
+
+    assert.equal(ack.status, "applied");
+    assert.equal(ack.resolvedPath, targetPath);
+    assert.equal(ack.resolvedKey, "1_Projects/CustomName.md|0");
+    assert.equal(writes.length, 1);
+    assert.ok(writes[0]?.content.includes("- [test](chrome://extensions)"));
+  });
+
+  it("returns skipped_ambiguous when folder-parent create target cannot be resolved", () => {
+    const { ctx, writes } = makeContext({});
+    ctx.knownKeys = {
+      managedFolderPaths: new Set(["1_Projects/EASE"]),
+      managedNotePaths: new Set()
+    };
+
+    const ack = applyReverseEvent(
+      makeEvent({
+        type: "bookmark_created",
+        managedKey: "folder:1_Projects/EASE",
+        title: "test",
+        url: "chrome://extensions"
+      }),
+      ctx
+    );
+
+    assert.deepEqual(ack, {
+      eventId: "evt-1",
+      status: "skipped_ambiguous",
+      reason: "folder_parent_note_not_found"
+    });
+    assert.equal(writes.length, 0);
+  });
+
+  it("returns skipped_ambiguous for parent key updates before resolvedKey remap", () => {
+    const { ctx, writes } = makeContext({});
+    const ack = applyReverseEvent(
+      makeEvent({
+        type: "bookmark_updated",
+        managedKey: "folder:1_Projects/EASE",
+        title: "changed"
+      }),
+      ctx
+    );
+
+    assert.deepEqual(ack, {
+      eventId: "evt-1",
+      status: "skipped_ambiguous",
+      reason: "parent_key_requires_create"
+    });
+    assert.equal(writes.length, 0);
   });
 
   it("applies link-key bookmark_created by appending a link to Link section", () => {

@@ -9,7 +9,7 @@ import { buildDesiredTree } from "./model-builder";
 import { DEFAULT_SETTINGS, type DesiredFolder, type Project2ChromeSettings } from "./types";
 import { createBridgeHandler, skeletonApplyHook, type ApplyHook } from "./bridge-handler";
 import { createReverseApplyHook } from "./reverse-apply";
-import { createReverseLogger } from "./reverse-logger";
+import { createReverseLogger, type ReverseLogEntry } from "./reverse-logger";
 import type { ManagedKeySet } from "./reverse-guardrails";
 
 export default class Project2ChromePlugin extends Plugin {
@@ -20,6 +20,8 @@ export default class Project2ChromePlugin extends Plugin {
   private bridgeServer: Server | null = null;
   private latestPayloadJson = "";
   private processedBatchIds: Set<string> = new Set();
+  private reverseDebugEntries: ReverseLogEntry[] = [];
+  private readonly reverseDebugMaxEntries = 250;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -35,6 +37,23 @@ export default class Project2ChromePlugin extends Plugin {
       name: "Refresh payload for Chrome extension",
       callback: async () => {
         await this.syncNow();
+      }
+    });
+
+    this.addCommand({
+      id: "project2chrome-show-reverse-debug-snapshot",
+      name: "Show reverse sync debug snapshot",
+      callback: () => {
+        this.showReverseDebugSnapshot();
+      }
+    });
+
+    this.addCommand({
+      id: "project2chrome-clear-reverse-debug-log",
+      name: "Clear reverse sync debug log",
+      callback: () => {
+        this.clearReverseDebugEntries();
+        new Notice("Project2Chrome reverse debug log cleared");
       }
     });
 
@@ -67,7 +86,9 @@ export default class Project2ChromePlugin extends Plugin {
       bookmarkBarRootCustomName: loaded?.bookmarkBarRootCustomName ?? DEFAULT_SETTINGS.bookmarkBarRootCustomName,
       extensionBridgeEnabled: loaded?.extensionBridgeEnabled ?? DEFAULT_SETTINGS.extensionBridgeEnabled,
       extensionBridgePort: normalizeBridgePort(loaded?.extensionBridgePort ?? DEFAULT_SETTINGS.extensionBridgePort),
-      extensionBridgeToken: (loaded?.extensionBridgeToken ?? DEFAULT_SETTINGS.extensionBridgeToken).trim() || DEFAULT_SETTINGS.extensionBridgeToken
+      extensionBridgeToken: (loaded?.extensionBridgeToken ?? DEFAULT_SETTINGS.extensionBridgeToken).trim() || DEFAULT_SETTINGS.extensionBridgeToken,
+      reverseDebugEnabled: loaded?.reverseDebugEnabled ?? DEFAULT_SETTINGS.reverseDebugEnabled,
+      reverseDebugNoticeOnError: loaded?.reverseDebugNoticeOnError ?? DEFAULT_SETTINGS.reverseDebugNoticeOnError
     };
   }
 
@@ -159,12 +180,18 @@ export default class Project2ChromePlugin extends Plugin {
       ? this.createLiveApplyHook()
       : applyHook;
 
+    const reverseLogger = createReverseLogger((entry) => {
+      this.handleReverseDebugEntry(entry);
+    });
+
     const handler = createBridgeHandler({
       expectedToken: this.settings.extensionBridgeToken,
       getPayload: () => this.latestPayloadJson,
       processedBatchIds: this.processedBatchIds,
       applyHook: effectiveApplyHook,
-      logger: createReverseLogger()
+      logger: reverseLogger,
+      getDebugEntries: () => this.getReverseDebugEntries(),
+      clearDebugEntries: () => this.clearReverseDebugEntries()
     });
 
     this.bridgeServer = createServer(handler);
@@ -197,6 +224,51 @@ export default class Project2ChromePlugin extends Plugin {
 
       return reverseApplyHook(batch);
     };
+  }
+
+  private handleReverseDebugEntry(entry: ReverseLogEntry): void {
+    if (entry.level === "error" && this.settings.reverseDebugNoticeOnError) {
+      const detail = entry.status ?? entry.reason ?? entry.event;
+      new Notice(`Project2Chrome reverse sync error: ${detail}`);
+    }
+
+    if (!this.settings.reverseDebugEnabled) {
+      return;
+    }
+
+    this.reverseDebugEntries.push(entry);
+    if (this.reverseDebugEntries.length > this.reverseDebugMaxEntries) {
+      this.reverseDebugEntries.splice(0, this.reverseDebugEntries.length - this.reverseDebugMaxEntries);
+    }
+
+    console.log(`[Project2Chrome:reverse] ${JSON.stringify(entry)}`);
+  }
+
+  getReverseDebugEntries(): ReverseLogEntry[] {
+    return [...this.reverseDebugEntries];
+  }
+
+  clearReverseDebugEntries(): void {
+    this.reverseDebugEntries = [];
+  }
+
+  showReverseDebugSnapshot(): void {
+    if (this.reverseDebugEntries.length === 0) {
+      new Notice("Project2Chrome reverse debug log is empty");
+      return;
+    }
+
+    const latest = this.reverseDebugEntries.slice(-5);
+    const lines = latest.map((entry) => this.formatReverseDebugEntry(entry)).join("\n");
+    new Notice(`Project2Chrome reverse debug (${this.reverseDebugEntries.length})\n${lines}`);
+  }
+
+  private formatReverseDebugEntry(entry: ReverseLogEntry): string {
+    const status = entry.status ? ` status=${entry.status}` : "";
+    const reason = entry.reason ? ` reason=${entry.reason}` : "";
+    const eventId = entry.eventId ? ` eventId=${entry.eventId}` : "";
+    const batchId = entry.batchId ? ` batchId=${entry.batchId}` : "";
+    return `[${entry.level}] ${entry.event}${status}${reason}${eventId}${batchId}`;
   }
 
   private getVaultBasePath(): string | null {
@@ -354,6 +426,41 @@ class Project2ChromeSettingTab extends PluginSettingTab {
             this.plugin.settings.extensionBridgeToken = value.trim() || DEFAULT_SETTINGS.extensionBridgeToken;
             await this.plugin.saveSettings();
           });
+      });
+
+    new Setting(containerEl)
+      .setName("Reverse debug enabled")
+      .setDesc("Capture reverse-sync events in memory and expose via /reverse-debug")
+      .addToggle((toggle) => {
+        toggle.setValue(this.plugin.settings.reverseDebugEnabled).onChange(async (value) => {
+          this.plugin.settings.reverseDebugEnabled = value;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Reverse debug error notices")
+      .setDesc("Show Obsidian notice when reverse-sync errors occur")
+      .addToggle((toggle) => {
+        toggle.setValue(this.plugin.settings.reverseDebugNoticeOnError).onChange(async (value) => {
+          this.plugin.settings.reverseDebugNoticeOnError = value;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Reverse debug log")
+      .setDesc("View latest reverse-sync debug snapshot or clear in-memory log")
+      .addButton((button) => {
+        button.setButtonText("Show").onClick(() => {
+          this.plugin.showReverseDebugSnapshot();
+        });
+      })
+      .addButton((button) => {
+        button.setButtonText("Clear").onClick(() => {
+          this.plugin.clearReverseDebugEntries();
+          new Notice("Project2Chrome reverse debug log cleared");
+        });
       });
 
     new Setting(containerEl)

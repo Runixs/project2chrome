@@ -3,6 +3,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, describe, it } from "node:test";
 import { createBridgeHandler, skeletonApplyHook } from "./bridge-handler";
+import type { ReverseLogEntry } from "./reverse-logger";
 
 const TEST_TOKEN = "test-token-t3-endpoint";
 const FIXED_PAYLOAD = '{"payload":"test-fixture"}\n';
@@ -55,6 +56,8 @@ describe("bridge reverse-sync endpoint", () => {
   let server: Server;
   let port: number;
   const processedBatchIds = new Set<string>();
+  let debugEntries: ReverseLogEntry[] = [];
+  let clearDebugCount = 0;
 
   before(
     () =>
@@ -63,7 +66,12 @@ describe("bridge reverse-sync endpoint", () => {
           expectedToken: TEST_TOKEN,
           getPayload: () => FIXED_PAYLOAD,
           processedBatchIds,
-          applyHook: skeletonApplyHook
+          applyHook: skeletonApplyHook,
+          getDebugEntries: () => [...debugEntries],
+          clearDebugEntries: () => {
+            clearDebugCount += 1;
+            debugEntries = [];
+          }
         });
         server = createServer(handler);
         server.listen(0, "127.0.0.1", () => resolve());
@@ -104,6 +112,65 @@ describe("bridge reverse-sync endpoint", () => {
     resolvePort();
     const res = await httpGet(port, "/payload");
     assert.equal(res.status, 401);
+  });
+
+  it("GET /reverse-debug with valid token returns debug entries", async () => {
+    resolvePort();
+    debugEntries = [
+      {
+        timestamp: "2026-02-25T11:00:00.000Z",
+        level: "info",
+        event: "ack"
+      }
+    ];
+
+    const res = await httpGet(port, "/reverse-debug", TEST_TOKEN);
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as {
+      count: number;
+      events: Array<{ event: string; level: string }>;
+    };
+    assert.equal(body.count, 1);
+    assert.equal(body.events.length, 1);
+    const debugEvent = body.events[0];
+    assert.ok(debugEvent !== undefined, "debug events should include entry");
+    assert.equal(debugEvent.event, "ack");
+  });
+
+  it("GET /reverse-debug without token returns 401", async () => {
+    resolvePort();
+    const res = await httpGet(port, "/reverse-debug");
+    assert.equal(res.status, 401);
+  });
+
+  it("POST /reverse-debug/clear clears in-memory entries", async () => {
+    resolvePort();
+    clearDebugCount = 0;
+    debugEntries = [
+      {
+        timestamp: "2026-02-25T11:05:00.000Z",
+        level: "warn",
+        event: "skip"
+      }
+    ];
+
+    const res = await httpPost(port, "/reverse-debug/clear", {}, TEST_TOKEN);
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { ok: boolean };
+    assert.equal(body.ok, true);
+    assert.equal(clearDebugCount, 1);
+
+    const after = await httpGet(port, "/reverse-debug", TEST_TOKEN);
+    const afterBody = (await after.json()) as { count: number };
+    assert.equal(afterBody.count, 0);
+  });
+
+  it("POST /reverse-debug/clear without token returns 401", async () => {
+    resolvePort();
+    const before = clearDebugCount;
+    const res = await httpPost(port, "/reverse-debug/clear", {});
+    assert.equal(res.status, 401);
+    assert.equal(clearDebugCount, before);
   });
 
   // ── POST /reverse-sync happy path ──────────────────────────────────────────

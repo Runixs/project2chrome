@@ -5,7 +5,7 @@ import {
   type EventAck,
   type ReverseBatch
 } from "./reverse-sync-types";
-import type { ReverseLogger } from "./reverse-logger";
+import type { ReverseLogEntry, ReverseLogger } from "./reverse-logger";
 
 export type ApplyHook = (batch: ReverseBatch) => EventAck[] | Promise<EventAck[]>;
 
@@ -15,6 +15,8 @@ export interface BridgeHandlerConfig {
   processedBatchIds: Set<string>;
   applyHook: ApplyHook;
   logger?: ReverseLogger;
+  getDebugEntries?: () => ReverseLogEntry[];
+  clearDebugEntries?: () => void;
 }
 
 /** Skeleton apply hook — returns 'applied' for every event. T8 replaces this with real mutation. */
@@ -33,7 +35,15 @@ export function skeletonApplyHook(batch: ReverseBatch): EventAck[] {
 export function createBridgeHandler(
   config: BridgeHandlerConfig
 ): (req: IncomingMessage, res: ServerResponse) => void {
-  const { expectedToken, getPayload, processedBatchIds, applyHook, logger } = config;
+  const {
+    expectedToken,
+    getPayload,
+    processedBatchIds,
+    applyHook,
+    logger,
+    getDebugEntries,
+    clearDebugEntries
+  } = config;
 
   return (req, res) => {
     const method = req.method ?? "GET";
@@ -74,6 +84,38 @@ export function createBridgeHandler(
 
       res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
       res.end(payload);
+      return;
+    }
+
+    if (requestUrl.pathname === "/reverse-debug" && method === "GET") {
+      const tokenHeader = req.headers["x-project2chrome-token"];
+      const tokenValue = Array.isArray(tokenHeader) ? tokenHeader[0] : tokenHeader;
+      if ((tokenValue ?? "") !== expectedToken) {
+        logger?.logError(undefined, undefined, "auth_failure");
+        res.writeHead(401, { "Content-Type": "application/json; charset=utf-8" });
+        res.end('{"error":"unauthorized"}\n');
+        return;
+      }
+
+      const events = getDebugEntries ? getDebugEntries() : [];
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+      res.end(`${JSON.stringify({ count: events.length, events })}\n`);
+      return;
+    }
+
+    if (requestUrl.pathname === "/reverse-debug/clear" && method === "POST") {
+      const tokenHeader = req.headers["x-project2chrome-token"];
+      const tokenValue = Array.isArray(tokenHeader) ? tokenHeader[0] : tokenHeader;
+      if ((tokenValue ?? "") !== expectedToken) {
+        logger?.logError(undefined, undefined, "auth_failure");
+        res.writeHead(401, { "Content-Type": "application/json; charset=utf-8" });
+        res.end('{"error":"unauthorized"}\n');
+        return;
+      }
+
+      clearDebugEntries?.();
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+      res.end('{"ok":true}\n');
       return;
     }
 

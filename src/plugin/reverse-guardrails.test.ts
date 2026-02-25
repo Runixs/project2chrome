@@ -242,7 +242,7 @@ describe("applyReverseEvent guardrail integration", () => {
     assert.equal(writes.length, 0);
   });
 
-  it("managed note key proceeds normally to applied", () => {
+  it("managed note key proceeds normally to applied for folder_renamed", () => {
     const targetPath = "/vault/1_Projects/Doc.md";
     const { ctx, writes } = makeContext(
       { [targetPath]: ["---", "bookmark_name: Old", "---", "# Body"].join("\n") },
@@ -251,7 +251,7 @@ describe("applyReverseEvent guardrail integration", () => {
 
     const ack = applyReverseEvent(
       makeEvent({
-        type: "bookmark_updated",
+        type: "folder_renamed",
         managedKey: "note:1_Projects/Doc.md",
         title: "New Name"
       }),

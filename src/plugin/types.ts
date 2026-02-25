@@ -23,6 +23,8 @@ export interface Project2ChromeSettings {
   extensionBridgeEnabled: boolean;
   extensionBridgePort: number;
   extensionBridgeToken: string;
+  reverseDebugEnabled: boolean;
+  reverseDebugNoticeOnError: boolean;
 }
 
 export const DEFAULT_SETTINGS: Project2ChromeSettings = {
@@ -35,5 +37,7 @@ export const DEFAULT_SETTINGS: Project2ChromeSettings = {
   debounceMs: 700,
   extensionBridgeEnabled: true,
   extensionBridgePort: 27123,
-  extensionBridgeToken: "project2chrome-local"
+  extensionBridgeToken: "project2chrome-local",
+  reverseDebugEnabled: true,
+  reverseDebugNoticeOnError: true
 };

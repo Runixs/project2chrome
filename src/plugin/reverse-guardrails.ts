@@ -129,7 +129,7 @@ function countLinksInSection(content: string, linkHeading: string): number {
         break;
       }
       // Count valid markdown link bullet items only
-      if (/^\s*[-*+]\s+\[.+\]\(https?:\/\/.+\)/.test(line)) {
+      if (/^\s*[-*+]\s+\[.+\]\([^)]+\)/.test(line)) {
         count++;
       }
     }

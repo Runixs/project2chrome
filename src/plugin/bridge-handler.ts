@@ -48,8 +48,19 @@ export function createBridgeHandler(
   return (req, res) => {
     const method = req.method ?? "GET";
     const requestUrl = new URL(req.url ?? "/", "http://127.0.0.1");
+    const originHeader = req.headers.origin;
 
-    res.setHeader("Access-Control-Allow-Origin", "*");
+    if (originHeader !== undefined && !isAllowedHttpOrigin(originHeader)) {
+      logger?.logError(undefined, undefined, "forbidden_origin");
+      res.writeHead(403, { "Content-Type": "application/json; charset=utf-8" });
+      res.end('{"error":"forbidden origin"}\n');
+      return;
+    }
+
+    if (typeof originHeader === "string" && isAllowedHttpOrigin(originHeader)) {
+      res.setHeader("Access-Control-Allow-Origin", originHeader);
+      res.setHeader("Vary", "Origin");
+    }
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Project2Chrome-Token");
 
@@ -210,4 +221,20 @@ export function createBridgeHandler(
     res.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
     res.end('{"error":"not found"}\n');
   };
+}
+
+function isAllowedHttpOrigin(originHeader: string | string[]): boolean {
+  if (Array.isArray(originHeader)) {
+    if (originHeader.length !== 1) {
+      return false;
+    }
+    return isAllowedHttpOrigin(originHeader[0] ?? "");
+  }
+
+  const origin = originHeader.trim();
+  if (!origin) {
+    return false;
+  }
+
+  return origin.startsWith("chrome-extension://");
 }

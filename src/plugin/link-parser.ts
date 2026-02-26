@@ -1,6 +1,6 @@
 import type { LinkItem } from "./types";
 
-const MARKDOWN_LINK_RE = /\[((?:[^[\]]+|\[[^[\]]*\])+)\]\((https?:\/\/[^)\s]+)\)/g;
+const MARKDOWN_LINK_RE = /\[((?:[^[\]]*|\[[^[\]]*\])*)]\(([^)]*)\)/g;
 
 export function parseLinksFromHeading(content: string, heading: string, sourcePath: string): LinkItem[] {
   const lines = content.split(/\r?\n/);
@@ -42,20 +42,16 @@ export function parseLinksFromHeading(content: string, heading: string, sourcePa
 
     const markdownLinkRe = new RegExp(MARKDOWN_LINK_RE);
     for (const match of body.matchAll(markdownLinkRe)) {
-      const titleRaw = match[1];
-      const urlRaw = match[2];
-      if (!titleRaw || !urlRaw) {
-        continue;
-      }
-      const title = titleRaw.trim();
+      const titleRaw = match[1] ?? "";
+      const urlRaw = match[2] ?? "";
+      const title = titleRaw;
       const url = sanitizeUrl(urlRaw);
-      if (!url) {
+      if (url === null) {
         continue;
       }
-      links.push({ title: title.length > 0 ? title : url, url, key: `${sourcePath}|${String(linkIndex)}` });
+      links.push({ title, url, key: `${sourcePath}|${String(linkIndex)}` });
       linkIndex += 1;
     }
-
   }
 
   return links;
@@ -70,14 +66,16 @@ function normalizeHeadingText(raw: string): string {
 }
 
 function sanitizeUrl(raw: string): string | null {
-  const cleaned = raw.trim().replace(/[)>.,;]+$/, "");
-  try {
-    const url = new URL(cleaned);
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
-      return null;
-    }
-    return url.toString();
-  } catch {
+  if (typeof raw !== "string") {
     return null;
+  }
+  const cleaned = raw.trim().replace(/[)>.,;]+$/, "");
+  if (cleaned.length === 0) {
+    return "";
+  }
+  try {
+    return new URL(cleaned).toString();
+  } catch {
+    return cleaned;
   }
 }

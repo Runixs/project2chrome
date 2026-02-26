@@ -20,11 +20,21 @@ export interface Project2ChromeSettings {
   bookmarkBarRootCustomName: string;
   autoSync: boolean;
   debounceMs: number;
-  extensionBridgeEnabled: boolean;
-  extensionBridgePort: number;
-  extensionBridgeToken: string;
+  extensionBridgeServerEnabled: boolean;
+  extensionBridgeServerPort: number;
+  extensionBridgeServerPath: string;
+  extensionBridgeHeartbeatMs: number;
+  extensionBridgeClients: ExtensionBridgeClient[];
+  extensionBridgeActiveClientId: string;
   reverseDebugEnabled: boolean;
   reverseDebugNoticeOnError: boolean;
+}
+
+export interface ExtensionBridgeClient {
+  clientId: string;
+  token: string;
+  enabled: boolean;
+  scopes: string[];
 }
 
 export const DEFAULT_SETTINGS: Project2ChromeSettings = {
@@ -35,9 +45,19 @@ export const DEFAULT_SETTINGS: Project2ChromeSettings = {
   bookmarkBarRootCustomName: "Projects",
   autoSync: true,
   debounceMs: 700,
-  extensionBridgeEnabled: true,
-  extensionBridgePort: 27123,
-  extensionBridgeToken: "project2chrome-local",
+  extensionBridgeServerEnabled: true,
+  extensionBridgeServerPort: 27123,
+  extensionBridgeServerPath: "/ws",
+  extensionBridgeHeartbeatMs: 30000,
+  extensionBridgeClients: [
+    {
+      clientId: "local-event-gateway",
+      token: "project2chrome-local",
+      enabled: true,
+      scopes: ["sync:read", "sync:write"]
+    }
+  ],
+  extensionBridgeActiveClientId: "local-event-gateway",
   reverseDebugEnabled: true,
   reverseDebugNoticeOnError: true
 };

@@ -13,7 +13,7 @@ export type WritebackResult = {
   newContent?: string;
 };
 
-const MARKDOWN_LINK_RE = /\[((?:[^[\]]+|\[[^[\]]*\])+)]\((https?:\/\/[^)\s]+)\)/g;
+const MARKDOWN_LINK_RE = /\[((?:[^[\]]*|\[[^[\]]*\])*)]\(([^)]*)\)/g;
 
 export function applyWriteback(content: string, op: WritebackOperation): WritebackResult {
   const eol = detectLineEnding(content);
@@ -130,9 +130,6 @@ function parseFirstLinkFromBullet(line: string): Omit<SectionLink, "lineIndex"> 
 
   const title = match[1] ?? "";
   const url = match[2] ?? "";
-  if (title.length === 0 || url.length === 0) {
-    return null;
-  }
 
   const bodyStart = match.index;
   const bodyEnd = bodyStart + match[0].length;

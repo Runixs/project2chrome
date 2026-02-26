@@ -1,16 +1,26 @@
 import { createServer, type Server } from "node:http";
+import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import type { App, TAbstractFile } from "obsidian";
 import { FileSystemAdapter, Notice, Plugin, PluginSettingTab, Setting, TFolder } from "obsidian";
-import { normalizeBridgePort } from "./extension-bridge-config";
+import {
+  normalizeBridgeSettings,
+  normalizeBridgeHeartbeatMs,
+  normalizeBridgePath,
+  normalizeBridgePort,
+  resolveActiveClient
+} from "./extension-bridge-config";
 import { buildExtensionSyncPayload } from "./extension-payload";
 import { buildDesiredTree } from "./model-builder";
 import { DEFAULT_SETTINGS, type DesiredFolder, type Project2ChromeSettings } from "./types";
 import { createBridgeHandler, skeletonApplyHook, type ApplyHook } from "./bridge-handler";
 import { createReverseApplyHook } from "./reverse-apply";
 import { createReverseLogger, type ReverseLogEntry } from "./reverse-logger";
+import { REVERSE_EVENT_TYPES, REVERSE_SYNC_SCHEMA_VERSION, type EventAck, type ReverseBatch, type ReverseEvent, type ReverseEventType } from "./reverse-sync-types";
 import type { ManagedKeySet } from "./reverse-guardrails";
+import type { WsActionMessage } from "./websocket-action-types";
+import { createWebSocketBridge, type WebSocketBridge } from "./websocket-bridge";
 
 export default class Project2ChromePlugin extends Plugin {
   settings: Project2ChromeSettings = DEFAULT_SETTINGS;
@@ -18,6 +28,7 @@ export default class Project2ChromePlugin extends Plugin {
   private isSyncing = false;
   private syncQueued = false;
   private bridgeServer: Server | null = null;
+  private websocketBridge: WebSocketBridge | null = null;
   private latestPayloadJson = "";
   private processedBatchIds: Set<string> = new Set();
   private reverseDebugEntries: ReverseLogEntry[] = [];
@@ -25,6 +36,7 @@ export default class Project2ChromePlugin extends Plugin {
 
   async onload(): Promise<void> {
     await this.loadSettings();
+    await this.ensureBridgeTokenHardening();
     this.addSettingTab(new Project2ChromeSettingTab(this.app, this));
 
     this.registerEvent(this.app.vault.on("create", (file) => this.onVaultChange(file)));
@@ -57,6 +69,10 @@ export default class Project2ChromePlugin extends Plugin {
       }
     });
 
+    if (this.settings.autoSync) {
+      await this.syncNow();
+    }
+
     await this.startBridgeServer();
 
     if (this.settings.autoSync) {
@@ -69,6 +85,10 @@ export default class Project2ChromePlugin extends Plugin {
       clearTimeout(this.syncTimer);
       this.syncTimer = null;
     }
+    if (this.websocketBridge) {
+      void this.websocketBridge.close();
+      this.websocketBridge = null;
+    }
     if (this.bridgeServer) {
       this.bridgeServer.close();
       this.bridgeServer = null;
@@ -77,6 +97,17 @@ export default class Project2ChromePlugin extends Plugin {
 
   async loadSettings(): Promise<void> {
     const loaded = (await this.loadData()) as Partial<Project2ChromeSettings> | null;
+    const bridge = normalizeBridgeSettings(loaded as unknown as {
+      extensionBridgeServerEnabled?: boolean;
+      extensionBridgeServerPort?: number;
+      extensionBridgeServerPath?: string;
+      extensionBridgeHeartbeatMs?: number;
+      extensionBridgeClients?: unknown;
+      extensionBridgeActiveClientId?: unknown;
+      extensionBridgeEnabled?: boolean;
+      extensionBridgePort?: number;
+      extensionBridgeToken?: string;
+    } | null);
 
     this.settings = {
       ...DEFAULT_SETTINGS,
@@ -84,9 +115,12 @@ export default class Project2ChromePlugin extends Plugin {
       useFolderNotesPlugin: loaded?.useFolderNotesPlugin ?? DEFAULT_SETTINGS.useFolderNotesPlugin,
       bookmarkBarRootMode: loaded?.bookmarkBarRootMode === "target" ? "target" : (loaded?.bookmarkBarRootMode ?? DEFAULT_SETTINGS.bookmarkBarRootMode),
       bookmarkBarRootCustomName: loaded?.bookmarkBarRootCustomName ?? DEFAULT_SETTINGS.bookmarkBarRootCustomName,
-      extensionBridgeEnabled: loaded?.extensionBridgeEnabled ?? DEFAULT_SETTINGS.extensionBridgeEnabled,
-      extensionBridgePort: normalizeBridgePort(loaded?.extensionBridgePort ?? DEFAULT_SETTINGS.extensionBridgePort),
-      extensionBridgeToken: (loaded?.extensionBridgeToken ?? DEFAULT_SETTINGS.extensionBridgeToken).trim() || DEFAULT_SETTINGS.extensionBridgeToken,
+      extensionBridgeServerEnabled: bridge.extensionBridgeServerEnabled,
+      extensionBridgeServerPort: bridge.extensionBridgeServerPort,
+      extensionBridgeServerPath: bridge.extensionBridgeServerPath,
+      extensionBridgeHeartbeatMs: bridge.extensionBridgeHeartbeatMs,
+      extensionBridgeClients: bridge.extensionBridgeClients,
+      extensionBridgeActiveClientId: bridge.extensionBridgeActiveClientId,
       reverseDebugEnabled: loaded?.reverseDebugEnabled ?? DEFAULT_SETTINGS.reverseDebugEnabled,
       reverseDebugNoticeOnError: loaded?.reverseDebugNoticeOnError ?? DEFAULT_SETTINGS.reverseDebugNoticeOnError
     };
@@ -152,6 +186,7 @@ export default class Project2ChromePlugin extends Plugin {
       const payload = buildExtensionSyncPayload(desired, this.settings);
       this.latestPayloadJson = `${JSON.stringify(payload, null, 2)}\n`;
       await this.saveSettings();
+      this.websocketBridge?.sendSnapshot();
       if (!targetExists) {
         new Notice(`Project2Chrome: target folder missing, serving empty payload: ${this.settings.targetFolderPath}`);
       }
@@ -168,13 +203,17 @@ export default class Project2ChromePlugin extends Plugin {
   }
 
   async startBridgeServer(applyHook: ApplyHook = skeletonApplyHook): Promise<void> {
-    if (this.bridgeServer) {
-      this.bridgeServer.close();
-      this.bridgeServer = null;
+    if (this.websocketBridge) {
+      await this.websocketBridge.close();
+      this.websocketBridge = null;
     }
-    if (!this.settings.extensionBridgeEnabled) {
+    await this.closeBridgeServer();
+    if (!this.settings.extensionBridgeServerEnabled) {
       return;
     }
+
+    const activeClient = resolveActiveClient(this.settings.extensionBridgeClients, this.settings.extensionBridgeActiveClientId);
+    this.settings.extensionBridgeActiveClientId = activeClient.clientId;
 
     const effectiveApplyHook = applyHook === skeletonApplyHook
       ? this.createLiveApplyHook()
@@ -185,7 +224,7 @@ export default class Project2ChromePlugin extends Plugin {
     });
 
     const handler = createBridgeHandler({
-      expectedToken: this.settings.extensionBridgeToken,
+      expectedToken: activeClient.token,
       getPayload: () => this.latestPayloadJson,
       processedBatchIds: this.processedBatchIds,
       applyHook: effectiveApplyHook,
@@ -196,9 +235,141 @@ export default class Project2ChromePlugin extends Plugin {
 
     this.bridgeServer = createServer(handler);
 
+    this.websocketBridge = createWebSocketBridge({
+      server: this.bridgeServer,
+      path: this.settings.extensionBridgeServerPath,
+      heartbeatMs: this.settings.extensionBridgeHeartbeatMs,
+      getClients: () => this.settings.extensionBridgeClients,
+      getSnapshotPayload: () => this.parseLatestPayloadSnapshot(),
+      applyAction: (_clientId, action) => this.applyWebSocketAction(action, effectiveApplyHook),
+      onLog: (level, event, data) => this.handleWebSocketBridgeLog(level, event, data)
+    });
+
     await new Promise<void>((resolve, reject) => {
       this.bridgeServer?.once("error", reject);
-      this.bridgeServer?.listen(this.settings.extensionBridgePort, "127.0.0.1", () => resolve());
+      this.bridgeServer?.listen(this.settings.extensionBridgeServerPort, "127.0.0.1", () => resolve());
+    });
+  }
+
+  private async applyWebSocketAction(action: WsActionMessage, applyHook: ApplyHook): Promise<EventAck> {
+    if (!action.idempotencyKey) {
+      return {
+        eventId: action.eventId,
+        status: "rejected_invalid",
+        reason: "missing_idempotency_key"
+      };
+    }
+
+    if (this.processedBatchIds.has(action.idempotencyKey)) {
+      return {
+        eventId: action.eventId,
+        status: "duplicate"
+      };
+    }
+
+    const eventType = toReverseEventType(action.op);
+    if (!eventType) {
+      return {
+        eventId: action.eventId,
+        status: "rejected_invalid",
+        reason: "unsupported_op"
+      };
+    }
+
+    const bookmarkId = readActionPayloadString(action.payload, "bookmarkId") ?? action.target;
+    const managedKey = readActionPayloadString(action.payload, "managedKey") ?? action.target;
+    if (!bookmarkId || !managedKey) {
+      return {
+        eventId: action.eventId,
+        status: "rejected_invalid",
+        reason: "missing_target_fields"
+      };
+    }
+
+    const event: ReverseEvent = {
+      batchId: action.idempotencyKey,
+      eventId: action.eventId,
+      type: eventType,
+      bookmarkId,
+      managedKey,
+      parentId: readActionPayloadString(action.payload, "parentId"),
+      title: readActionPayloadContentString(action.payload, "title"),
+      url: readActionPayloadContentString(action.payload, "url"),
+      occurredAt: action.occurredAt,
+      schemaVersion: REVERSE_SYNC_SCHEMA_VERSION
+    };
+
+    const batch: ReverseBatch = {
+      batchId: action.idempotencyKey,
+      events: [event],
+      sentAt: new Date().toISOString()
+    };
+
+    const results = await applyHook(batch);
+    const result = results[0] ?? {
+      eventId: action.eventId,
+      status: "rejected_invalid",
+      reason: "apply_hook_empty_result"
+    };
+    this.processedBatchIds.add(action.idempotencyKey);
+    return result;
+  }
+
+  private parseLatestPayloadSnapshot(): Record<string, unknown> | null {
+    if (!this.latestPayloadJson) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(this.latestPayloadJson) as unknown;
+      return isRecord(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async ensureBridgeTokenHardening(): Promise<void> {
+    const active = resolveActiveClient(this.settings.extensionBridgeClients, this.settings.extensionBridgeActiveClientId);
+    if (active.token !== "project2chrome-local") {
+      return;
+    }
+
+    const hardenedToken = `p2c-${randomUUID()}`;
+    this.settings.extensionBridgeClients = this.settings.extensionBridgeClients.map((client) => {
+      if (client.clientId !== active.clientId) {
+        return client;
+      }
+      return {
+        ...client,
+        token: hardenedToken
+      };
+    });
+    await this.saveSettings();
+  }
+
+  private async closeBridgeServer(): Promise<void> {
+    const server = this.bridgeServer;
+    if (!server) {
+      return;
+    }
+    this.bridgeServer = null;
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
+  }
+
+  private handleWebSocketBridgeLog(
+    level: "info" | "warn" | "error",
+    event: string,
+    data?: Record<string, string>
+  ): void {
+    this.handleReverseDebugEntry({
+      timestamp: new Date().toISOString(),
+      level,
+      event,
+      eventId: data?.eventId,
+      status: data?.status,
+      reason: formatWebSocketLogReason(data)
     });
   }
 
@@ -213,11 +384,10 @@ export default class Project2ChromePlugin extends Plugin {
         }));
       }
 
-      const knownKeys = this.buildManagedKeySetFromLatestPayload();
       const reverseApplyHook = createReverseApplyHook({
         vaultBasePath,
         linkHeading: this.settings.linkHeading,
-        knownKeys,
+        knownKeys: this.buildManagedKeySetFromLatestPayload(),
         readFile: (absolutePath) => this.readVaultFileSync(vaultBasePath, absolutePath),
         writeFile: (absolutePath, content) => this.writeVaultFileSync(vaultBasePath, absolutePath, content)
       });
@@ -393,8 +563,8 @@ class Project2ChromeSettingTab extends PluginSettingTab {
       .setName("Extension bridge enabled")
       .setDesc("Serve payload to Chrome extension over localhost")
       .addToggle((toggle) => {
-        toggle.setValue(this.plugin.settings.extensionBridgeEnabled).onChange(async (value) => {
-          this.plugin.settings.extensionBridgeEnabled = value;
+        toggle.setValue(this.plugin.settings.extensionBridgeServerEnabled).onChange(async (value) => {
+          this.plugin.settings.extensionBridgeServerEnabled = value;
           await this.plugin.saveSettings();
           await this.plugin.startBridgeServer();
         });
@@ -406,25 +576,94 @@ class Project2ChromeSettingTab extends PluginSettingTab {
       .addText((text) => {
         text
           .setPlaceholder("27123")
-          .setValue(String(this.plugin.settings.extensionBridgePort))
+          .setValue(String(this.plugin.settings.extensionBridgeServerPort))
           .onChange(async (value) => {
             const parsed = Number.parseInt(value, 10);
-            this.plugin.settings.extensionBridgePort = normalizeBridgePort(parsed);
+            this.plugin.settings.extensionBridgeServerPort = normalizeBridgePort(parsed);
             await this.plugin.saveSettings();
             await this.plugin.startBridgeServer();
           });
       });
 
     new Setting(containerEl)
-      .setName("Extension bridge token")
-      .setDesc("Shared token required by extension request header")
+      .setName("Extension bridge path")
+      .setDesc("WebSocket server path (reserved for transport migration)")
       .addText((text) => {
         text
-          .setPlaceholder("project2chrome-local")
-          .setValue(this.plugin.settings.extensionBridgeToken)
+          .setPlaceholder("/ws")
+          .setValue(this.plugin.settings.extensionBridgeServerPath)
           .onChange(async (value) => {
-            this.plugin.settings.extensionBridgeToken = value.trim() || DEFAULT_SETTINGS.extensionBridgeToken;
+            this.plugin.settings.extensionBridgeServerPath = normalizeBridgePath(value);
             await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Extension bridge heartbeat (ms)")
+      .setDesc("WebSocket heartbeat interval for bridge sessions")
+      .addText((text) => {
+        text
+          .setPlaceholder("30000")
+          .setValue(String(this.plugin.settings.extensionBridgeHeartbeatMs))
+          .onChange(async (value) => {
+            this.plugin.settings.extensionBridgeHeartbeatMs = normalizeBridgeHeartbeatMs(Number.parseInt(value, 10));
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Active bridge client ID")
+      .setDesc("Client profile used for current bridge auth")
+      .addText((text) => {
+        const activeClient = resolveActiveClient(this.plugin.settings.extensionBridgeClients, this.plugin.settings.extensionBridgeActiveClientId);
+        text
+          .setPlaceholder("local-event-gateway")
+          .setValue(activeClient.clientId)
+          .onChange(async (value) => {
+            const nextId = value.trim();
+            if (!nextId) {
+              return;
+            }
+            const existing = this.plugin.settings.extensionBridgeClients.find((client) => client.clientId === nextId);
+            if (!existing) {
+              const fallbackToken = activeClient.token || DEFAULT_SETTINGS.extensionBridgeClients[0]?.token || "project2chrome-local";
+              this.plugin.settings.extensionBridgeClients = [
+                ...this.plugin.settings.extensionBridgeClients,
+                {
+                  clientId: nextId,
+                  token: fallbackToken,
+                  enabled: true,
+                  scopes: ["sync:read", "sync:write"]
+                }
+              ];
+            }
+            this.plugin.settings.extensionBridgeActiveClientId = nextId;
+            await this.plugin.saveSettings();
+            await this.plugin.startBridgeServer();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Active bridge client token")
+      .setDesc("Shared token for active client profile")
+      .addText((text) => {
+        const activeClient = resolveActiveClient(this.plugin.settings.extensionBridgeClients, this.plugin.settings.extensionBridgeActiveClientId);
+        text
+          .setPlaceholder("project2chrome-local")
+          .setValue(activeClient.token)
+          .onChange(async (value) => {
+            const nextToken = value.trim() || DEFAULT_SETTINGS.extensionBridgeClients[0]?.token || "project2chrome-local";
+            this.plugin.settings.extensionBridgeClients = this.plugin.settings.extensionBridgeClients.map((client) => {
+              if (client.clientId !== this.plugin.settings.extensionBridgeActiveClientId) {
+                return client;
+              }
+              return {
+                ...client,
+                token: nextToken
+              };
+            });
+            await this.plugin.saveSettings();
+            await this.plugin.startBridgeServer();
           });
       });
 
@@ -544,4 +783,43 @@ function buildManagedKeySet(desired: DesiredFolder[]): ManagedKeySet {
     managedNotePaths,
     managedFolderPaths
   };
+}
+
+function toReverseEventType(op: string): ReverseEventType | null {
+  return REVERSE_EVENT_TYPES.includes(op as ReverseEventType) ? (op as ReverseEventType) : null;
+}
+
+function readActionPayloadString(payload: Record<string, unknown>, key: string): string | undefined {
+  const value = payload[key];
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function readActionPayloadContentString(payload: Record<string, unknown>, key: string): string | undefined {
+  const value = payload[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function formatWebSocketLogReason(data?: Record<string, string>): string | undefined {
+  if (!data) {
+    return undefined;
+  }
+  const parts: string[] = [];
+  if (data.clientId) {
+    parts.push(`clientId=${data.clientId}`);
+  }
+  if (data.reason) {
+    parts.push(`reason=${data.reason}`);
+  }
+  if (data.status) {
+    parts.push(`status=${data.status}`);
+  }
+  return parts.length > 0 ? parts.join(" ") : undefined;
 }

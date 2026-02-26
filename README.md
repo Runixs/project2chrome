@@ -1,170 +1,70 @@
 # Project2Chrome
 
-Project2Chrome is an Obsidian desktop plugin that builds and serves a bookmark payload for a separate Chrome extension gateway.
+Project2Chrome is an Obsidian desktop plugin that synchronizes bookmark intent with `local-event-gateway` using a WebSocket action protocol.
 
 ## What It Does
 
-- Mirrors a target vault folder recursively into Chrome bookmark folders.
-- Creates a bookmark folder per markdown note, and keeps that note's links inside it.
-- Supports Folder Notes mode: links from a folder-note file (same name as folder) are attached directly to the folder node.
-- Extracts links from `### Link` sections in markdown files.
-- Preserves markdown bullet order exactly and keeps duplicate URLs as separate bookmark entries.
-- Syncs on vault changes (create/modify/delete/rename) with debounce.
-- Serves bridge payload over localhost for extension-side sync.
+- Builds desired bookmark tree from a target vault folder.
+- Emits startup snapshot and edit-driven action updates.
+- Applies inbound bookmark actions back into notes/folder-note metadata.
+- Supports multi-client bridge auth profiles.
+- Preserves loop safety via dedupe/suppression behavior.
 
 ## Requirements
 
-- Obsidian desktop (plugin is desktop-only).
-- Chrome extension project: [Runixs/local-event-gateway](https://github.com/Runixs/local-event-gateway) (recommended source of truth).
-- Node.js 20+ and npm (for local build/test).
+- Obsidian desktop.
+- Chrome extension: `local-event-gateway`.
+- Node.js 20+ and npm for local development.
 
-## Quick Start (Development)
+## Development
 
 ```bash
 npm install
+npm run test
+npm run typecheck
 npm run build
 ```
 
-Build artifacts:
-
-- `dist/plugin/main.js`
-- `dist/plugin/manifest.json`
-
-## Install In Obsidian (Manual)
-
-1. Build the plugin.
-2. Copy `dist/plugin/main.js` and `dist/plugin/manifest.json` into:
-   `.obsidian/plugins/project2chrome/`
-3. Reload Obsidian and enable **Project2Chrome** in Community Plugins.
-
 ## Plugin Settings
 
-- `Target folder path`: Vault-relative root folder to mirror (example: `Projects`).
-- `Link heading`: Heading text used for extraction (supports `Link` or `### Link`, default `Link`).
-- `Folder Notes Plugin Use`: when enabled, a folder-note markdown file (same name as its folder) contributes links directly to that folder node instead of creating a duplicated child note folder.
-- `Root folder mode`:
-  - `Custom`: use `Custom root folder name`
-  - `Use target folder name`: use the last segment of target path
-- `Auto sync`: enable sync on vault events.
-- `Debounce (ms)`: delay before running sync after vault events.
-- `Extension bridge enabled`: serve payload to localhost bridge endpoint.
-- `Extension bridge port`: localhost port (default `27123`).
-- `Extension bridge token`: shared token used by extension request header.
+- Target/content settings:
+  - `Target folder path`
+  - `Link heading`
+  - `Folder Notes Plugin Use`
+  - `Root folder mode`
+  - `Custom root folder name`
+- Bridge settings:
+  - `Extension bridge enabled`
+  - `Extension bridge port`
+  - `Extension bridge path`
+  - `Extension bridge heartbeat (ms)`
+  - `Active bridge client ID`
+  - `Active bridge client token`
+- Runtime settings:
+  - `Auto sync`
+  - `Debounce (ms)`
 
-## Extension Setup (Automated Sync)
+## Transport
 
-1. Open `chrome://extensions`.
-2. Enable Developer mode.
-3. Clone/use [Runixs/local-event-gateway](https://github.com/Runixs/local-event-gateway), then click `Load unpacked` and select your local clone path.
-4. Open extension popup and set:
-   - Bridge URL: `http://127.0.0.1:27123/payload`
-   - Bridge token: same value as plugin setting
-5. Click `Sync From Obsidian` once, then enable `Auto sync every 1 minute`.
+- Plugin hosts local WebSocket bridge on configured localhost port/path.
+- Bridge authenticates clients using per-client token handshake.
+- Action envelopes are validated and ACKed with deterministic statuses.
 
-## Link Extraction Format
+## Reverse Apply Semantics
 
-Inside a markdown note, links are read from bullet items under the configured heading (for example `Link` or `### Link`) only when they use markdown hyperlink format `[name](url)`:
-
-```markdown
-### Link
-- [Project board](https://example.com/board)
-```
-
-Notes:
-- Bare URLs (for example `- https://example.com/docs`) are ignored.
-- Only `http`/`https` links with a markdown label are added as bookmarks.
-- Each markdown note becomes its own bookmark folder; links from that note are stored in that folder.
-- If note frontmatter has `bookmark_name`, that value is used as the bookmark folder name for the note.
-- Link order follows bullet order in the note.
-- Duplicate URLs are allowed and kept as separate entries.
-
-## Folder Notes Mode Example
-
-When `Folder Notes Plugin Use` is enabled and a folder contains a note file with the same name as the folder:
-
-```text
-APS-45429/
-  APS-45429.md
-  APS-47235.md
-```
-
-The bookmark structure is generated as:
-
-```text
-APS-45429/
-  <links from APS-45429.md>
-  APS-47235/
-    <links from APS-47235.md>
-```
-
-If `APS-45429.md` contains frontmatter `bookmark_name: "[VN] Host bootloader"`, the folder node name becomes `[VN] Host bootloader`.
+- Supported ops: `bookmark_created`, `bookmark_updated`, `bookmark_deleted`, `folder_renamed`, `bookmark_moved`.
+- Unknown/unresolvable targets return explicit skip/reject statuses.
+- Managed-key guardrails are derived from latest payload snapshot and enforced during live apply.
+- Title/URL payload values are accepted as strings without content-level scheme gating.
 
 ## Commands
 
-- `Refresh payload for Chrome extension`: rebuild payload served by local bridge.
+- `Refresh payload for Chrome extension`
+- `Show reverse sync debug snapshot`
+- `Clear reverse sync debug log`
 
-## Test And Typecheck
+## Notes on Link Parsing
 
-```bash
-npm run test
-npm run typecheck
-```
-
-## Bridge Endpoint
-
-- Health: `GET http://127.0.0.1:<port>/health`
-- Payload: `GET http://127.0.0.1:<port>/payload`
-- Required header: `X-Project2Chrome-Token: <token>`
-
-## Reverse Sync
-
-Reverse sync enables Chrome bookmark changes to propagate back into Obsidian notes. When the extension detects a bookmark event on an extension-managed node, it posts the event to the plugin bridge so Obsidian can update the corresponding note.
-
-### What It Does
-
-- Captures Chrome bookmark events (`bookmark_created`, `bookmark_updated`, `bookmark_deleted`, `folder_renamed`) for managed nodes.
-- Posts the event payload to `POST /reverse-sync` on the same localhost bridge server.
-- Plugin receives the event and writes back to the matching Obsidian note or folder.
-
-### Endpoint
-
-```
-POST http://127.0.0.1:<port>/reverse-sync
-X-Project2Chrome-Token: <token>
-```
-
-Same port and token as the existing `/payload` endpoint.
-
-### Managed Scope Only
-
-Only extension-managed bookmarks trigger reverse sync. Non-managed nodes (manually created by the user outside the gateway root) are silently ignored with status `skipped_unmanaged`.
-
-Managed node keys take the form:
-
-- `folder:<path>`
-- `note:<path>`
-- `<sourcePath>|<linkIndex>`
-
-### Conflict Policy: Chrome Wins
-
-For any conflict between Chrome state and Obsidian note state, Chrome is the source of truth. The plugin writes the Chrome-side value into the note without prompting.
-
-### Ambiguity Policy: Skip + Log
-
-If the plugin cannot unambiguously resolve which note or link bullet to update, it **skips the write** and records the event in the reverse sync log. It never makes a best-guess write.
-
-### ACK Statuses
-
-| Status | Meaning |
-|---|---|
-| `applied` | Write successfully applied to note |
-| `skipped_ambiguous` | Could not resolve target unambiguously; write skipped |
-| `skipped_unmanaged` | Node is not extension-managed; ignored |
-| `rejected_invalid` | Payload validation failed |
-| `duplicate` | Identical event already processed |
-
-### V1 Out-of-Scope
-
-- No note file deletion (a `bookmark_deleted` event does not delete the `.md` file).
-- No filesystem rename (a `folder_renamed` event does not rename the vault folder).
-- Reverse sync applies to managed nodes only; the managed scope boundary is enforced by the guardrails layer.
+- Markdown links are parsed under the configured heading.
+- Empty/custom URL strings are supported at sync-layer string level.
+- Type/shape validation remains enforced by protocol validators.

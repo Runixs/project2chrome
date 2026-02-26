@@ -454,4 +454,47 @@ describe("e2e reverse-sync scenario matrix", () => {
       "plugin applied event without suppression"
     );
   });
+
+  it("S10 (deterministic dedupe): repeated batchId stays duplicate even when payload changes", async () => {
+    const firstBatch = makeBatch("batch-s10", [
+      makeEvent({
+        batchId: "batch-s10",
+        eventId: "evt-s10-a",
+        type: "bookmark_updated",
+        managedKey: "Notes/ambig-target.md|0",
+        title: "S10 First",
+        url: "https://s10-first.test"
+      })
+    ]);
+
+    const firstRes = await httpPost(port, "/reverse-sync", firstBatch, TEST_TOKEN);
+    assert.equal(firstRes.status, 200);
+    const firstBody = (await firstRes.json()) as { results: Array<{ status: string }> };
+    const firstResult = firstBody.results[0];
+    assert.ok(firstResult !== undefined, "firstBody.results[0] should exist");
+    assert.notEqual(firstResult.status, "duplicate");
+
+    const replayWithChangedPayload = makeBatch("batch-s10", [
+      makeEvent({
+        batchId: "batch-s10",
+        eventId: "evt-s10-b",
+        type: "bookmark_updated",
+        managedKey: "Notes/ambig-target.md|0",
+        title: "S10 Changed",
+        url: "https://s10-changed.test"
+      })
+    ]);
+
+    const replayRes = await httpPost(port, "/reverse-sync", replayWithChangedPayload, TEST_TOKEN);
+    assert.equal(replayRes.status, 200);
+    const replayBody = (await replayRes.json()) as {
+      batchId: string;
+      results: Array<{ eventId: string; status: string }>;
+    };
+    const replayResult = replayBody.results[0];
+    assert.ok(replayResult !== undefined, "replayBody.results[0] should exist");
+    assert.equal(replayBody.batchId, "batch-s10");
+    assert.equal(replayResult.eventId, "evt-s10-b");
+    assert.equal(replayResult.status, "duplicate");
+  });
 });

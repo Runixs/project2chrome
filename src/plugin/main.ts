@@ -39,9 +39,9 @@ export default class Project2ChromePlugin extends Plugin {
     await this.ensureBridgeTokenHardening();
     this.addSettingTab(new Project2ChromeSettingTab(this.app, this));
 
-    this.registerEvent(this.app.vault.on("create", (file) => this.onVaultChange(file)));
-    this.registerEvent(this.app.vault.on("modify", (file) => this.onVaultChange(file)));
-    this.registerEvent(this.app.vault.on("delete", (file) => this.onVaultChange(file)));
+    this.registerEvent(this.app.vault.on("create", (file) => this.onVaultChange("create", file)));
+    this.registerEvent(this.app.vault.on("modify", (file) => this.onVaultChange("modify", file)));
+    this.registerEvent(this.app.vault.on("delete", (file) => this.onVaultChange("delete", file)));
     this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.onVaultRename(file, oldPath)));
 
     this.addCommand({
@@ -130,13 +130,17 @@ export default class Project2ChromePlugin extends Plugin {
     await this.saveData(this.settings);
   }
 
-  private onVaultChange(file: TAbstractFile): void {
+  private onVaultChange(eventType: "create" | "modify" | "delete", file: TAbstractFile): void {
     if (!this.settings.autoSync) {
       return;
     }
     if (!isInsideTarget(file.path, this.settings.targetFolderPath)) {
       return;
     }
+    this.emitVaultAction(`vault_${eventType}`, file.path, {
+      path: file.path,
+      kind: file instanceof TFolder ? "folder" : "file"
+    });
     this.scheduleSync();
   }
 
@@ -147,7 +151,22 @@ export default class Project2ChromePlugin extends Plugin {
     if (!isInsideTarget(file.path, this.settings.targetFolderPath) && !isInsideTarget(oldPath, this.settings.targetFolderPath)) {
       return;
     }
+    const targetPath = isInsideTarget(oldPath, this.settings.targetFolderPath) ? oldPath : file.path;
+    this.emitVaultAction("vault_rename", targetPath, {
+      oldPath,
+      newPath: file.path,
+      kind: file instanceof TFolder ? "folder" : "file"
+    });
     this.scheduleSync();
+  }
+
+  private emitVaultAction(op: string, target: string, payload: Record<string, unknown>): void {
+    this.websocketBridge?.broadcastAction({
+      op,
+      target,
+      payload,
+      idempotencyKey: randomUUID()
+    });
   }
 
   private scheduleSync(): void {

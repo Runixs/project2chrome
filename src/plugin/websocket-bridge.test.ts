@@ -3,8 +3,8 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, it } from "node:test";
 import WebSocket, { type RawData } from "ws";
-import { createWebSocketBridge, type WebSocketBridge } from "./websocket-bridge";
 import type { EventAck } from "./reverse-sync-types";
+import { createWebSocketBridge, type WebSocketBridge } from "./websocket-bridge";
 
 interface Harness {
   port: number;
@@ -54,6 +54,7 @@ describe("createWebSocketBridge", () => {
     assert.ok(snapshot);
     assert.equal(snapshot.op, "snapshot");
     assert.equal(snapshot.target, "bookmark_tree");
+    await assertNoMessage(ws, 250);
 
     ws.close();
   });
@@ -177,6 +178,143 @@ describe("createWebSocketBridge", () => {
     assert.equal(routed.clientId, "client-a");
 
     await assertNoMessage(wsB, 250);
+
+    wsA.close();
+    wsB.close();
+  });
+
+  it("broadcasts per-edit vault actions for create/modify/delete/rename", async () => {
+    const harness = await createHarness();
+    const ws = await openClient(harness.port);
+
+    ws.send(
+      JSON.stringify({
+        type: "handshake",
+        eventId: "evt-h-4",
+        clientId: "client-a",
+        occurredAt: new Date().toISOString(),
+        schemaVersion: "1.0",
+        sessionId: "session-a",
+        token: "token-a"
+      })
+    );
+
+    await collectJsonMessages(ws, 2, 1500);
+
+    const editActions = [
+      {
+        op: "vault_create",
+        target: "Projects/new-note.md",
+        payload: { path: "Projects/new-note.md", kind: "file" }
+      },
+      {
+        op: "vault_modify",
+        target: "Projects/new-note.md",
+        payload: { path: "Projects/new-note.md", kind: "file" }
+      },
+      {
+        op: "vault_delete",
+        target: "Projects/new-note.md",
+        payload: { path: "Projects/new-note.md", kind: "file" }
+      },
+      {
+        op: "vault_rename",
+        target: "Projects/old-note.md",
+        payload: { oldPath: "Projects/old-note.md", newPath: "Projects/new-note.md", kind: "file" }
+      }
+    ] as const;
+
+    for (const editAction of editActions) {
+      harness.bridge.broadcastAction({
+        op: editAction.op,
+        target: editAction.target,
+        payload: editAction.payload
+      });
+
+      const routed = await waitForJsonMessage(ws);
+      assert.equal(routed.type, "action");
+      assert.equal(routed.op, editAction.op);
+      assert.equal(routed.target, editAction.target);
+      assert.deepEqual(routed.payload, editAction.payload);
+    }
+
+    ws.close();
+  });
+
+  it("processes cross-client action race on same target with independent ACKs", async () => {
+    const harness = await createHarness();
+    const wsA = await openClient(harness.port);
+    const wsB = await openClient(harness.port);
+
+    wsA.send(
+      JSON.stringify({
+        type: "handshake",
+        eventId: "evt-h-race-a",
+        clientId: "client-a",
+        occurredAt: new Date().toISOString(),
+        schemaVersion: "1.0",
+        sessionId: "session-race-a",
+        token: "token-a"
+      })
+    );
+    wsB.send(
+      JSON.stringify({
+        type: "handshake",
+        eventId: "evt-h-race-b",
+        clientId: "client-b",
+        occurredAt: new Date().toISOString(),
+        schemaVersion: "1.0",
+        sessionId: "session-race-b",
+        token: "token-b"
+      })
+    );
+
+    await Promise.all([collectJsonMessages(wsA, 2, 1500), collectJsonMessages(wsB, 2, 1500)]);
+
+    const occurredAt = new Date().toISOString();
+    wsA.send(
+      JSON.stringify({
+        type: "action",
+        eventId: "evt-race-a",
+        clientId: "client-a",
+        occurredAt,
+        schemaVersion: "1.0",
+        idempotencyKey: "idem-race-a",
+        op: "bookmark_updated",
+        target: "note:Projects/Alpha.md|0",
+        payload: {
+          bookmarkId: "bk-race",
+          managedKey: "note:Projects/Alpha.md|0",
+          title: "A wins?"
+        }
+      })
+    );
+    wsB.send(
+      JSON.stringify({
+        type: "action",
+        eventId: "evt-race-b",
+        clientId: "client-b",
+        occurredAt,
+        schemaVersion: "1.0",
+        idempotencyKey: "idem-race-b",
+        op: "bookmark_updated",
+        target: "note:Projects/Alpha.md|0",
+        payload: {
+          bookmarkId: "bk-race",
+          managedKey: "note:Projects/Alpha.md|0",
+          title: "B wins?"
+        }
+      })
+    );
+
+    const [ackA, ackB] = await Promise.all([waitForJsonMessage(wsA), waitForJsonMessage(wsB)]);
+    assert.equal(ackA.type, "ack");
+    assert.equal(ackA.correlationId, "evt-race-a");
+    assert.equal(ackA.status, "applied");
+    assert.equal(ackB.type, "ack");
+    assert.equal(ackB.correlationId, "evt-race-b");
+    assert.equal(ackB.status, "applied");
+    assert.equal(harness.actions.length, 2);
 
     wsA.close();
     wsB.close();

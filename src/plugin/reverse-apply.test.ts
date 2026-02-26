@@ -16,6 +16,7 @@ function makeEvent(overrides: Partial<ReverseEvent>): ReverseEvent {
     bookmarkId: overrides.bookmarkId ?? "bm-1",
     managedKey: overrides.managedKey ?? "note:1_Projects/Doc.md",
     parentId: overrides.parentId,
+    moveIndex: overrides.moveIndex,
     title: overrides.title,
     url: overrides.url,
     occurredAt: overrides.occurredAt ?? "2026-02-25T10:00:00.000Z",
@@ -156,6 +157,63 @@ describe("applyReverseEvent", () => {
     assert.ok(writes[0]?.content.includes("- [test](chrome://extensions)"));
   });
 
+  it("applies folder-parent bookmark_created by known direct child note fallback", () => {
+    const targetPath = "/vault/1_Projects/EASE/APS-45429.md";
+    const { ctx, writes } = makeContext({
+      [targetPath]: ["# APS-45429", "### Link"].join("\n")
+    });
+    ctx.knownKeys = {
+      managedFolderPaths: new Set(["1_Projects/EASE"]),
+      managedNotePaths: new Set(["1_Projects/EASE/APS-45429.md"])
+    };
+
+    const ack = applyReverseEvent(
+      makeEvent({
+        type: "bookmark_created",
+        managedKey: "folder:1_Projects/EASE",
+        title: "test",
+        url: "chrome://extensions"
+      }),
+      ctx
+    );
+
+    assert.equal(ack.status, "applied");
+    assert.equal(ack.resolvedPath, targetPath);
+    assert.equal(ack.resolvedKey, "1_Projects/EASE/APS-45429.md|0");
+    assert.equal(writes.length, 1);
+    assert.ok(writes[0]?.content.includes("- [test](chrome://extensions)"));
+  });
+
+  it("returns skipped_ambiguous when known direct child note fallback has multiple candidates", () => {
+    const first = "/vault/1_Projects/EASE/APS-45429.md";
+    const second = "/vault/1_Projects/EASE/README.md";
+    const { ctx, writes } = makeContext({
+      [first]: ["# APS-45429", "### Link"].join("\n"),
+      [second]: ["# README", "### Link"].join("\n")
+    });
+    ctx.knownKeys = {
+      managedFolderPaths: new Set(["1_Projects/EASE"]),
+      managedNotePaths: new Set(["1_Projects/EASE/APS-45429.md", "1_Projects/EASE/README.md"])
+    };
+
+    const ack = applyReverseEvent(
+      makeEvent({
+        type: "bookmark_created",
+        managedKey: "folder:1_Projects/EASE",
+        title: "test",
+        url: "chrome://extensions"
+      }),
+      ctx
+    );
+
+    assert.deepEqual(ack, {
+      eventId: "evt-1",
+      status: "skipped_ambiguous",
+      reason: "folder_parent_ambiguous"
+    });
+    assert.equal(writes.length, 0);
+  });
+
   it("returns skipped_ambiguous when folder-parent create target cannot be resolved", () => {
     const { ctx, writes } = makeContext({});
     ctx.knownKeys = {
@@ -241,6 +299,43 @@ describe("applyReverseEvent", () => {
     assert.equal(ack.status, "applied");
     assert.equal(writes.length, 1);
     assert.equal(writes[0]?.content, ["### Link", "- [One](https://one.test)", "### Other"].join("\n"));
+  });
+
+  it("applies link-key bookmark_updated with moveIndex by reordering link position", () => {
+    const targetPath = "/vault/1_Projects/Doc.md";
+    const { ctx, writes } = makeContext({
+      [targetPath]: [
+        "### Link",
+        "- [One](https://one.test)",
+        "- [Two](https://two.test)",
+        "- [Three](https://three.test)",
+        "### Other"
+      ].join("\n")
+    });
+
+    const ack = applyReverseEvent(
+      makeEvent({
+        type: "bookmark_updated",
+        managedKey: "1_Projects/Doc.md|0",
+        moveIndex: 2
+      }),
+      ctx
+    );
+
+    assert.equal(ack.status, "applied");
+    assert.equal(ack.resolvedPath, targetPath);
+    assert.equal(ack.resolvedKey, "1_Projects/Doc.md|2");
+    assert.equal(writes.length, 1);
+    assert.equal(
+      writes[0]?.content,
+      [
+        "### Link",
+        "- [Two](https://two.test)",
+        "- [Three](https://three.test)",
+        "- [One](https://one.test)",
+        "### Other"
+      ].join("\n")
+    );
   });
 
   it("applies folder:<path> folder_renamed by updating bookmark_name", () => {

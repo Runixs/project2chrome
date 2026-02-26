@@ -293,6 +293,7 @@ export default class Project2ChromePlugin extends Plugin {
       bookmarkId,
       managedKey,
       parentId: readActionPayloadString(action.payload, "parentId"),
+      moveIndex: readActionPayloadInteger(action.payload, "moveIndex"),
       title: readActionPayloadContentString(action.payload, "title"),
       url: readActionPayloadContentString(action.payload, "url"),
       occurredAt: action.occurredAt,
@@ -801,6 +802,14 @@ function readActionPayloadString(payload: Record<string, unknown>, key: string):
 function readActionPayloadContentString(payload: Record<string, unknown>, key: string): string | undefined {
   const value = payload[key];
   return typeof value === "string" ? value : undefined;
+}
+
+function readActionPayloadInteger(payload: Record<string, unknown>, key: string): number | undefined {
+  const value = payload[key];
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    return undefined;
+  }
+  return value;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

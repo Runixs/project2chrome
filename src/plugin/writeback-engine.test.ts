@@ -136,6 +136,44 @@ describe("applyWriteback", () => {
     assert.equal(result.newContent, ["### Link", "- [Brand New](https://brand-new.test)", "### Other"].join("\n"));
   });
 
+  it("moves link to later index", () => {
+    const md = ["### Link", "- [One](https://one.test)", "- [Two](https://two.test)", "- [Three](https://three.test)"]
+      .join("\n");
+
+    const result = applyWriteback(md, {
+      type: "move",
+      notePath: "a.md",
+      linkIndex: 0,
+      toIndex: 2,
+      linkHeading: "Link"
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(
+      result.newContent,
+      ["### Link", "- [Two](https://two.test)", "- [Three](https://three.test)", "- [One](https://one.test)"].join("\n")
+    );
+  });
+
+  it("moves link to earlier index", () => {
+    const md = ["### Link", "- [One](https://one.test)", "- [Two](https://two.test)", "- [Three](https://three.test)"]
+      .join("\n");
+
+    const result = applyWriteback(md, {
+      type: "move",
+      notePath: "a.md",
+      linkIndex: 2,
+      toIndex: 0,
+      linkHeading: "Link"
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(
+      result.newContent,
+      ["### Link", "- [Three](https://three.test)", "- [One](https://one.test)", "- [Two](https://two.test)"].join("\n")
+    );
+  });
+
   it("deletes exactly one line at index", () => {
     const md = [
       "### Link",
@@ -203,6 +241,20 @@ describe("applyWriteback", () => {
       type: "delete",
       notePath: "a.md",
       linkIndex: 3,
+      linkHeading: "Link"
+    });
+
+    assert.deepEqual(result, { success: false, reason: "index_out_of_range" });
+  });
+
+  it("returns index_out_of_range for invalid move target", () => {
+    const md = ["### Link", "- [A](https://a.test)", "- [B](https://b.test)"].join("\n");
+
+    const result = applyWriteback(md, {
+      type: "move",
+      notePath: "a.md",
+      linkIndex: 0,
+      toIndex: 3,
       linkHeading: "Link"
     });
 

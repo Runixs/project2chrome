@@ -1,7 +1,8 @@
 export type WritebackOperation = {
-  type: "create" | "update" | "delete";
+  type: "create" | "update" | "delete" | "move";
   notePath: string;
   linkIndex?: number;
+  toIndex?: number;
   title?: string;
   url?: string;
   linkHeading: string;
@@ -41,6 +42,42 @@ export function applyWriteback(content: string, op: WritebackOperation): Writeba
       return { success: false, reason: "index_out_of_range" };
     }
     lines.splice(insertionIndex, 0, newLine);
+    return { success: true, newContent: joinLines(lines, eol, hasTrailingEol) };
+  }
+
+  if (op.type === "move") {
+    if (
+      op.linkIndex === undefined
+      || !Number.isInteger(op.linkIndex)
+      || op.linkIndex < 0
+      || op.linkIndex >= sectionLinks.length
+      || op.toIndex === undefined
+      || !Number.isInteger(op.toIndex)
+      || op.toIndex < 0
+      || op.toIndex >= sectionLinks.length
+    ) {
+      return { success: false, reason: "index_out_of_range" };
+    }
+
+    if (op.linkIndex === op.toIndex) {
+      return { success: true, newContent: joinLines(lines, eol, hasTrailingEol) };
+    }
+
+    const source = sectionLinks[op.linkIndex];
+    if (!source) {
+      return { success: false, reason: "index_out_of_range" };
+    }
+    const movedLine = lines[source.lineIndex] ?? "";
+    lines.splice(source.lineIndex, 1);
+
+    const sectionEndAfterMove = findSectionEnd(lines, headingIndex);
+    const linksAfterMove = collectSectionLinks(lines, headingIndex + 1, sectionEndAfterMove);
+    const insertionIndex = resolveCreateInsertionLine(op.toIndex, linksAfterMove, sectionEndAfterMove);
+    if (insertionIndex < 0) {
+      return { success: false, reason: "index_out_of_range" };
+    }
+
+    lines.splice(insertionIndex, 0, movedLine);
     return { success: true, newContent: joinLines(lines, eol, hasTrailingEol) };
   }
 

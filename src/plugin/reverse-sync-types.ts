@@ -16,6 +16,7 @@ export interface ReverseEvent {
   bookmarkId: string;
   managedKey: string;
   parentId?: string;
+  moveIndex?: number;
   title?: string;
   url?: string;
   occurredAt: string;
@@ -90,10 +91,11 @@ function parseEvent(rawEvent: unknown, fallbackBatchId: string): ReverseEvent | 
   }
 
   const parentId = readOptionalString(rawEvent.parentId);
+  const moveIndex = readOptionalInteger(rawEvent.moveIndex);
   const title = readOptionalString(rawEvent.title);
   const url = readOptionalString(rawEvent.url);
 
-  if (parentId === null || title === null || url === null) {
+  if (parentId === null || moveIndex === null || title === null || url === null) {
     return null;
   }
 
@@ -104,6 +106,7 @@ function parseEvent(rawEvent: unknown, fallbackBatchId: string): ReverseEvent | 
     bookmarkId,
     managedKey,
     parentId: parentId ?? undefined,
+    moveIndex: moveIndex ?? undefined,
     title: title ?? undefined,
     url: url ?? undefined,
     occurredAt,
@@ -145,6 +148,16 @@ function readOptionalString(value: unknown): string | null | undefined {
     return undefined;
   }
   return readString(value);
+}
+
+function readOptionalInteger(value: unknown): number | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    return null;
+  }
+  return value;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

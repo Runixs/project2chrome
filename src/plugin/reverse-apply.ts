@@ -162,11 +162,12 @@ export function applyReverseEvent(event: ReverseEvent, ctx: ReverseApplyContext)
   }
 
   ctx.writeFile(targetPath, result.newContent);
+  const resolvedKey = resolveResultManagedKey(key, writebackOperation);
   return {
     eventId: event.eventId,
     status: "applied",
     resolvedPath: targetPath,
-    resolvedKey: key.managedKey
+    resolvedKey
   };
 }
 
@@ -238,6 +239,17 @@ function resolveParentCreateTarget(
     }
   }
   if (directResolved.length > 1) {
+    return { ok: false, reason: "folder_parent_ambiguous" };
+  }
+
+  const knownChildCandidates = collectKnownDirectChildNoteMatches(folderPath, ctx);
+  if (knownChildCandidates.length === 1) {
+    const onlyKnownChild = knownChildCandidates[0];
+    if (onlyKnownChild) {
+      return resolveCreateTargetForSourcePath(onlyKnownChild, ctx);
+    }
+  }
+  if (knownChildCandidates.length > 1) {
     return { ok: false, reason: "folder_parent_ambiguous" };
   }
 
@@ -385,6 +397,37 @@ function collectKnownPathNameMatches(folderPath: string, ctx: ReverseApplyContex
   return uniqueStrings(matches);
 }
 
+function collectKnownDirectChildNoteMatches(folderPath: string, ctx: ReverseApplyContext): string[] {
+  if (!ctx.knownKeys) {
+    return [];
+  }
+
+  const normalizedFolderPath = trimRelativePath(folderPath);
+  if (!normalizedFolderPath) {
+    return [];
+  }
+
+  const prefix = `${normalizedFolderPath}/`;
+  const matches: string[] = [];
+  for (const notePath of ctx.knownKeys.managedNotePaths) {
+    const normalizedNotePath = trimRelativePath(notePath);
+    if (!normalizedNotePath || !normalizedNotePath.startsWith(prefix)) {
+      continue;
+    }
+
+    const remainder = normalizedNotePath.slice(prefix.length);
+    if (!remainder || remainder.includes("/")) {
+      continue;
+    }
+
+    if (remainder.toLowerCase().endsWith(".md")) {
+      matches.push(normalizedNotePath);
+    }
+  }
+
+  return uniqueStrings(matches);
+}
+
 function trimRelativePath(value: string): string {
   return value.trim().replace(/^\/+/, "").replace(/\/+$/, "");
 }
@@ -438,6 +481,17 @@ function toWritebackOperation(
   }
 
   if (event.type === "bookmark_updated") {
+    const moveIndex = event.moveIndex;
+    if (typeof moveIndex === "number" && Number.isInteger(moveIndex) && moveIndex >= 0 && moveIndex !== linkIndex) {
+      return {
+        type: "move",
+        notePath: sourcePath,
+        linkIndex,
+        toIndex: moveIndex,
+        linkHeading
+      };
+    }
+
     return {
       type: "update",
       notePath: sourcePath,
@@ -458,6 +512,17 @@ function toWritebackOperation(
   }
 
   return null;
+}
+
+function resolveResultManagedKey(
+  key: Extract<ManagedKeyResolution, { kind: "link" }>,
+  operation: WritebackOperation
+): string {
+  const toIndex = operation.toIndex;
+  if (operation.type === "move" && typeof toIndex === "number" && Number.isInteger(toIndex) && toIndex >= 0) {
+    return `${key.sourcePath}|${String(toIndex)}`;
+  }
+  return key.managedKey;
 }
 
 function joinVaultPath(vaultBasePath: string, sourcePath: string): string {

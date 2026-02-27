@@ -57,6 +57,25 @@ export function parseLinksFromHeading(content: string, heading: string, sourcePa
   return links;
 }
 
+export function hasHeadingSource(content: string, heading: string): boolean {
+  const normalizedHeading = normalizeHeadingText(heading);
+  if (!normalizedHeading) {
+    return false;
+  }
+
+  const lines = content.split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
+    const headingText = headingMatch?.[2];
+    if (headingText && normalizeHeadingText(headingText) === normalizedHeading) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function normalizeHeadingText(raw: string): string {
   return raw
     .trim()

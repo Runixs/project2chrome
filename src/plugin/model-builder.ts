@@ -1,6 +1,6 @@
 import type { TAbstractFile, TFile, TFolder, Vault } from "obsidian";
 import { extractBookmarkNameFromFrontmatter } from "./frontmatter";
-import { hasHeadingSource, parseLinksFromHeading } from "./link-parser";
+import { parseLinksFromHeading } from "./link-parser";
 import type { DesiredFolder, LinkItem } from "./types";
 
 export async function buildDesiredTree(
@@ -39,7 +39,6 @@ async function buildFolder(vault: Vault, folder: TFolder, heading: string, useFo
   const children: DesiredFolder[] = [];
   let links: LinkItem[] = [];
   let folderName = folder.name;
-  let hasFolderNoteSource = false;
 
   for (const child of folder.children) {
     if (isVaultFolder(child)) {
@@ -53,10 +52,10 @@ async function buildFolder(vault: Vault, folder: TFolder, heading: string, useFo
     if (isMarkdownFile(child)) {
       if (useFolderNotesPlugin && isFolderNoteFile(child, folder)) {
         const content = await vault.read(child);
-        if (hasHeadingSource(content, heading)) {
-          links = parseLinksFromHeading(content, heading, child.path);
+        const folderNoteLinks = parseLinksFromHeading(content, heading, child.path);
+        if (folderNoteLinks.length > 0) {
+          links = folderNoteLinks;
           folderName = extractBookmarkNameFromFrontmatter(content) ?? folder.name;
-          hasFolderNoteSource = true;
         }
         continue;
       }
@@ -67,7 +66,7 @@ async function buildFolder(vault: Vault, folder: TFolder, heading: string, useFo
     }
   }
 
-  if (children.length === 0 && links.length === 0 && !hasFolderNoteSource) {
+  if (children.length === 0 && links.length === 0) {
     return null;
   }
 
@@ -82,10 +81,10 @@ async function buildFolder(vault: Vault, folder: TFolder, heading: string, useFo
 
 async function buildNoteFolder(vault: Vault, noteFile: TFile, heading: string): Promise<DesiredFolder | null> {
   const content = await vault.read(noteFile);
-  if (!hasHeadingSource(content, heading)) {
+  const links = parseLinksFromHeading(content, heading, noteFile.path);
+  if (links.length === 0) {
     return null;
   }
-  const links = parseLinksFromHeading(content, heading, noteFile.path);
   const bookmarkName = extractBookmarkNameFromFrontmatter(content);
 
   return {
